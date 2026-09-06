@@ -46,7 +46,7 @@ export const DEMO_TEMPLATE_SRC = `data:image/svg+xml;charset=utf-8,${encodeURICo
  * with the threshold, which is why the settings and the seams live in one value.
  */
 export const DEMO_TEMPLATE_PRESET = {
-  name: "Museum",
+  name: "Greek",
   settings: {
     threshold: 0.49,
     detail: 0,
