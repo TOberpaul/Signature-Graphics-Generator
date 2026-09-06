@@ -639,6 +639,7 @@ export function Generator() {
                   variant="brand"
                   icon="upload"
                   onClick={file.open}
+                  aria-describedby="bild-auswaehlen-help"
                 >
                   Bild auswählen
                 </DBButton>
@@ -646,7 +647,7 @@ export function Generator() {
                   Demo laden
                 </DBButton>
               </DBStack>
-              <DBInfotext semantic="adaptive" showIcon={false}>
+              <DBInfotext semantic="adaptive" showIcon={false} id="bild-auswaehlen-help">
                 Am besten eine schwarze Silhouette auf weißem Hintergrund.
               </DBInfotext>
             </DBStack>
@@ -728,8 +729,9 @@ export function Generator() {
               value={nameDraft}
               autoFocus
               onChange={(event) => setNameDraft(event.target.value)}
+              aria-describedby="name-der-grafik-help"
             />
-            <DBInfotext semantic="adaptive" size="small" showIcon={false}>
+            <DBInfotext semantic="adaptive" size="small" showIcon={false} id="name-der-grafik-help">
               Wird oben angezeigt und beim Export als Dateiname verwendet.
             </DBInfotext>
           </DBStack>
