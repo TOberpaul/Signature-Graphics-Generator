@@ -314,16 +314,23 @@ export function BarPreview({
   const seamHeight = (seam: Seam): number => Math.max(1, Math.round(seam.height ?? 1));
 
   /**
-   * Builds a seam from a slot range, dropping the range when it spans everything.
+   * Rebuilds a seam with a new row and slot range, keeping everything else.
    *
-   * Keeps one representation for "cuts the full width" instead of two that behave
-   * the same, so a seam dragged out to both edges is the same value as one that
-   * was never limited.
+   * The range is dropped when it spans the full width, so there is one
+   * representation for "cuts everything" instead of two that behave the same.
+   * `height` is carried over deliberately: reshaping and moving must not silently
+   * reset the height of the cut.
    */
-  const seamWithRange = (row: number, from: number, to: number): Seam => {
+  const seamWithRange = (seam: Seam, row: number, from: number, to: number): Seam => {
     const left = Math.min(Math.max(from, 0), lastSlot);
     const right = Math.min(Math.max(to, 0), lastSlot);
-    return left <= 0 && right >= lastSlot ? { row } : { row, from: left, to: right };
+    const spansAll = left <= 0 && right >= lastSlot;
+
+    return {
+      row,
+      ...(seam.height !== undefined ? { height: seam.height } : {}),
+      ...(spansAll ? {} : { from: left, to: right }),
+    };
   };
 
   /** Does the seam cover this slot? An open range covers everything. */
@@ -365,8 +372,9 @@ export function BarPreview({
     slot: number,
     row: number,
   ): "from" | "to" | "height" | "move" => {
-    // The bottom edge wins over the sides: it is the thinner target of the two,
-    // and being one row tall it needs the whole width to stay reachable.
+    // Below the cut is the height handle, on it and above is everything else. The
+    // zones do not overlap, so a gesture is either about the position or about the
+    // size - never both at once.
     const bottom = seam.row + seamHeight(seam) - 1;
     if (row > bottom) return "height";
 
@@ -388,15 +396,18 @@ export function BarPreview({
 
     const existing = seamIndexAt(row, slot);
     if (existing >= 0) {
+      const grip = seamGrip(seams[existing], slot, row);
+
       // Alt (Option) duplicates instead of moving, the usual gesture in drawing
       // tools. The original stays where it is and the copy follows the pointer,
       // keeping the range - a limited seam is tedious to draw twice by hand.
-      if (event.altKey) {
+      //
+      // Only on the body: on an end handle Alt means resizing symmetrically, which
+      // is the other half of the same convention.
+      if (event.altKey && grip === "move") {
         setDrag({ mode: "copy", grabSlot: slot, preview: { ...seams[existing] } });
         return;
       }
-
-      const grip = seamGrip(seams[existing], slot, row);
       setDrag(
         grip === "move"
           ? { index: existing, mode: "move", grabSlot: slot }
@@ -437,7 +448,7 @@ export function BarPreview({
       setDrag({
         ...drag,
         grabSlot: slot,
-        preview: seamWithRange(row, start, start + width),
+        preview: seamWithRange(drag.preview, row, start, start + width),
       });
       return;
     }
@@ -455,6 +466,7 @@ export function BarPreview({
       replace(
         spans
           ? seamWithRange(
+              dragged,
               row,
               Math.min(drag.anchorSlot, slot),
               Math.max(drag.anchorSlot, slot),
@@ -465,34 +477,61 @@ export function BarPreview({
     }
 
     if (drag.mode === "height") {
-      // Snapped to the legal gaps, so dragging cannot produce a 2 to 3 dp cut -
-      // the sizes the construction rules would treat as a mistake anyway.
+      // Only the height changes here, the row stays put. Snapped to the legal gaps,
+      // so dragging cannot produce a 2 to 3 dp cut - the sizes the construction
+      // rules would treat as a mistake anyway.
       const height = snapSeamHeight(row - dragged.row + 1);
       if (height === seamHeight(dragged)) return;
-      replace(height === 1 ? { ...dragged, height: undefined } : { ...dragged, height });
+      replace(
+        height === 1
+          ? { ...dragged, height: undefined }
+          : { ...dragged, height },
+      );
       return;
     }
 
     const { from, to } = seamRange(dragged);
 
-    if (drag.mode === "from") {
-      // Dragging one end past the other flips them, so the seam cannot invert.
-      replace(seamWithRange(row, Math.min(slot, to), Math.max(slot, to)));
-      return;
-    }
+    if (drag.mode === "from" || drag.mode === "to") {
+      // Only the range changes here, the row stays where it is. Alt mirrors the
+      // change onto the other end, the usual shortcut for resizing about the
+      // centre; the two ends then move by the same amount in opposite directions.
+      const fixed = drag.mode === "from" ? to : from;
+      const moving = slot;
 
-    if (drag.mode === "to") {
-      replace(seamWithRange(row, Math.min(from, slot), Math.max(from, slot)));
+      if (event.altKey) {
+        const centre = (from + to) / 2;
+        const reach = Math.abs(moving - centre);
+        replace(
+          seamWithRange(
+            dragged,
+            dragged.row,
+            Math.round(centre - reach),
+            Math.round(centre + reach),
+          ),
+        );
+        return;
+      }
+
+      // Dragging one end past the other flips them, so the seam cannot invert.
+      replace(
+        seamWithRange(
+          dragged,
+          dragged.row,
+          Math.min(moving, fixed),
+          Math.max(moving, fixed),
+        ),
+      );
       return;
     }
 
     // Move: the row follows the pointer and the range travels with it, keeping its
-    // length. Shifting is clamped rather than truncated, so pushing a seam against
-    // an edge slides it there instead of shortening it.
+    // length and height. Shifting is clamped rather than truncated, so pushing a
+    // seam against an edge slides it there instead of shortening it.
     const limited = dragged.from !== undefined || dragged.to !== undefined;
     if (!limited) {
       if (row === dragged.row) return;
-      replace({ row });
+      replace({ ...dragged, row });
       return;
     }
 
@@ -501,7 +540,7 @@ export function BarPreview({
     const start = Math.min(Math.max(from + shift, 0), lastSlot - width);
     if (row === dragged.row && start === from) return;
 
-    replace(seamWithRange(row, start, start + width));
+    replace(seamWithRange(dragged, row, start, start + width));
     setDrag({ ...drag, grabSlot: slot });
   };
 
