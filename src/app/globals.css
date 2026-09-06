@@ -427,6 +427,13 @@ body {
   pointer-events: none;
 }
 
+/* A copy being placed: not committed yet, so it reads as provisional while the
+   original stays fully visible underneath it. */
+.bar-preview-seam-copy {
+  opacity: var(--db-opacity-lg);
+  z-index: 5;
+}
+
 /* The guide that follows the cursor while the tool is open, so it is clear which
    row a click would hit. Dimmer than a placed seam. */
 .bar-preview-seam-guide {

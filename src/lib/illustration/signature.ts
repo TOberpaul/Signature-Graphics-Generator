@@ -859,6 +859,25 @@ function staggerLevelBands(columns: Column[], report: ConstructionReport): void 
   const pureBand = banded.every((column) => column.runs.every((run) => run.level));
   if (!pureBand) return;
 
+  // The offset moves the band to the right, towards the next slot. A stroke shifted
+  // by half a pitch ends exactly where an unshifted neighbour begins, which leaves
+  // no gap at all and reads as one block twice the width - a worse break of the
+  // rules than not staggering. So the offset is only applied when no column of the
+  // band has an unshifted neighbour to its right that it overlaps vertically.
+  const inBand = new Set(banded.map((column) => column.x));
+  const byX = new Map(columns.map((column) => [column.x, column]));
+
+  const wouldTouch = banded.some((column) => {
+    const right = byX.get(column.x + 1);
+    if (!right || inBand.has(right.x)) return false;
+    return column.runs.some((run) =>
+      right.runs.some(
+        (other) => run.y < other.y + other.height && other.y < run.y + run.height,
+      ),
+    );
+  });
+  if (wouldTouch) return;
+
   for (const column of banded) {
     column.offset = DP.rowOffset;
     report.columnsStaggered += 1;

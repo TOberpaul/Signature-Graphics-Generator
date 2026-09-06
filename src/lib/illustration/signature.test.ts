@@ -14,6 +14,7 @@ import { maskToSignature } from "./shapeMask";
 import { validateIllustration } from "./validation";
 import { layoutRects, renderIllustration } from "./renderer";
 import type { OccupancyGrid } from "./occupancy";
+import type { ConstructedStrokes } from "./signature";
 
 function grid(rows: string[]): OccupancyGrid {
   return { widthCells: rows[0]?.length ?? 0, heightCells: rows.length, rows };
@@ -891,5 +892,92 @@ describe("maskToSignature", () => {
     const first = maskToSignature(input, {});
     const second = maskToSignature(input, {});
     expect(second.illustration).toEqual(first.illustration);
+  });
+});
+
+describe("horizontal spacing", () => {
+  /**
+   * Smallest horizontal gap between two strokes that overlap vertically.
+   *
+   * Strokes that do not overlap vertically never appear side by side, so no gap is
+   * expected between them. Measured from the constructed columns, since the
+   * sideways offset lives there.
+   */
+  function narrowestGap(constructed: ConstructedStrokes): number {
+    const strokes = constructed.columns.flatMap((column) =>
+      column.runs.map((run) => ({
+        left: column.x * DP_PITCH + column.offset,
+        run,
+      })),
+    );
+
+    let narrowest = Number.POSITIVE_INFINITY;
+    for (const a of strokes) {
+      for (const b of strokes) {
+        if (a.left >= b.left) continue;
+        const overlaps =
+          a.run.y < b.run.y + b.run.height && b.run.y < a.run.y + a.run.height;
+        if (!overlaps) continue;
+        narrowest = Math.min(narrowest, b.left - (a.left + DP.strokeWidth));
+      }
+    }
+
+    return narrowest;
+  }
+
+  /**
+   * Three columns carrying nothing but a short run are read as a level band, which
+   * is the one rule that shifts strokes sideways. The tall column beside them is
+   * what the band would be shifted into: half a pitch to the right ends exactly
+   * where that neighbour begins, leaving no gap at all.
+   */
+  const bandBesideNeighbour = grid([
+    "###.#",
+    "###.#",
+    "....#",
+    "....#",
+    "....#",
+    "....#",
+    "....#",
+    "....#",
+  ]);
+
+  it("staggers a level band when it has room", () => {
+    // Without the neighbour the band is free to take the offset, so the guard is
+    // not simply switching staggering off altogether.
+    const alone = grid(["###", "###", "...", "...", "...", "..."]);
+    const constructed = constructStrokes(alone);
+
+    expect(constructed.columns.some((column) => column.offset === DP.rowOffset)).toBe(
+      true,
+    );
+  });
+
+  it("never puts two strokes closer than the horizontal gap", () => {
+    const shapes: OccupancyGrid[] = [
+      block(12, 30),
+      bandBesideNeighbour,
+      grid([
+        "..####..",
+        "..####..",
+        ".######.",
+        "########",
+        "########",
+        "#..##..#",
+        "#..##..#",
+      ]),
+      grid(["#.....#", "#.....#", "#######", "#######", "#.....#", "#.....#"]),
+    ];
+
+    // Seams split columns and can leave short runs behind, so they are part of
+    // what has to hold this invariant.
+    for (const shape of shapes) {
+      for (const manualSeams of [[], [{ row: 4 }], [{ row: 4 }, { row: 9 }]]) {
+        const gap = narrowestGap(constructStrokes(shape, { manualSeams }));
+        if (Number.isFinite(gap)) {
+          expect(gap).toBeGreaterThanOrEqual(DP.horizontalGap);
+        }
+      }
+    }
   });
 });

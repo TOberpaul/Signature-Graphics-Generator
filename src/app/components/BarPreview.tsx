@@ -101,7 +101,14 @@ export function BarPreview({
     | { index: number; mode: "draw"; anchorSlot: number }
     | { index: number; mode: "move"; grabSlot: number }
     | { index: number; mode: "from" }
-    | { index: number; mode: "to" };
+    | { index: number; mode: "to" }
+    /**
+     * Alt-dragging a copy. The original is left untouched and nothing is added to
+     * the list until the pointer is released - until then `preview` is drawn as a
+     * faint seam at the cursor, so the copy can be placed instead of appearing
+     * somewhere first and having to be moved from there.
+     */
+    | { mode: "copy"; grabSlot: number; preview: Seam };
 
   const [drag, setDrag] = useState<SeamDrag | null>(null);
   /** Boxes of what a click would remove, while the delete tool is open. */
@@ -321,15 +328,10 @@ export function BarPreview({
     const existing = seamIndexAt(row, slot);
     if (existing >= 0) {
       // Alt (Option) duplicates instead of moving, the usual gesture in drawing
-      // tools. The copy keeps the range and is what gets dragged, which is the
-      // point: a limited seam is tedious to draw twice by hand.
+      // tools. The original stays where it is and the copy follows the pointer,
+      // keeping the range - a limited seam is tedious to draw twice by hand.
       if (event.altKey) {
-        const source = seams[existing];
-        // Offset by a row, so the copy is not an exact duplicate - identical
-        // seams are folded together - and is visible straight away.
-        const copyRow = Math.min(source.row + 1, geometry.rows - 1);
-        onSeamsChange([...seams, { ...source, row: copyRow }]);
-        setDrag({ index: seams.length, mode: "move", grabSlot: slot });
+        setDrag({ mode: "copy", grabSlot: slot, preview: { ...seams[existing] } });
         return;
       }
 
@@ -357,6 +359,28 @@ export function BarPreview({
     setHoverSlot(slot);
 
     if (!drag || row === null) return;
+
+    // The copy only exists as a preview until the pointer is released, so this
+    // moves local state and leaves the seam list alone.
+    if (drag.mode === "copy") {
+      const { from, to } = seamRange(drag.preview);
+      const limited = drag.preview.from !== undefined || drag.preview.to !== undefined;
+      if (!limited) {
+        setDrag({ ...drag, preview: { row } });
+        return;
+      }
+
+      const width = to - from;
+      const shift = slot - drag.grabSlot;
+      const start = Math.min(Math.max(from + shift, 0), lastSlot - width);
+      setDrag({
+        ...drag,
+        grabSlot: slot,
+        preview: seamWithRange(row, start, start + width),
+      });
+      return;
+    }
+
     const dragged = seams[drag.index];
     if (!dragged) return;
 
@@ -413,6 +437,45 @@ export function BarPreview({
 
   const endDrag = () => setDrag(null);
 
+  /**
+   * Releasing commits the copy.
+   *
+   * A copy dropped where it started is an exact duplicate of the original, and
+   * those are folded together upstream - so an Alt-click without dragging needs no
+   * special case here and simply changes nothing.
+   */
+  const handleUp = () => {
+    if (drag?.mode === "copy" && onSeamsChange) {
+      onSeamsChange([...seams, drag.preview]);
+    }
+    endDrag();
+  };
+
+  /**
+   * Where a seam sits on the canvas, as fractions of it.
+   *
+   * A limited seam is drawn only over the slots it cuts, so its reach is visible
+   * without having to read it off the strokes.
+   */
+  const seamStyle = (seam: Seam): React.CSSProperties => {
+    const { from, to } = seamRange(seam);
+    const limited = seam.from !== undefined || seam.to !== undefined;
+    const start = limited
+      ? (geometry.padding + from * geometry.pitch) / geometry.totalWidth
+      : 0;
+    const width = limited
+      ? ((to - from + 1) * geometry.pitch - illustration.system.gapUnits) /
+        geometry.totalWidth
+      : 1;
+
+    return {
+      insetBlockStart: `${((geometry.padding + seam.row) / geometry.totalHeight) * 100}%`,
+      blockSize: `${(1 / geometry.totalHeight) * 100}%`,
+      insetInlineStart: `${start * 100}%`,
+      inlineSize: `${width * 100}%`,
+    };
+  };
+
   /** The seam under the cursor, for the cursor shape and the placement guide. */
   const hoverSeam =
     onSeamsChange && hoverRow !== null
@@ -466,7 +529,7 @@ export function BarPreview({
         onSeamsChange ? handleMove : onDeletePart ? handleEraseMove : undefined
       }
       onMouseUp={
-        onSeamsChange ? endDrag : onDeletePart ? () => setErasing(false) : undefined
+        onSeamsChange ? handleUp : onDeletePart ? () => setErasing(false) : undefined
       }
       onDoubleClick={onSeamsChange ? handleDoubleClick : undefined}
       onMouseLeave={
@@ -518,34 +581,24 @@ export function BarPreview({
           the tool is open. Only shown with the tool active - the seam itself is
           already visible in the graphic. */}
       {onSeamsChange
-        ? seams.map((seam, index) => {
-            // A limited seam is drawn only over the slots it cuts, so its reach is
-            // visible without having to read it off the strokes.
-            const { from, to } = seamRange(seam);
-            const limited = seam.from !== undefined || seam.to !== undefined;
-            const start = limited
-              ? (geometry.padding + from * geometry.pitch) / geometry.totalWidth
-              : 0;
-            const width = limited
-              ? ((to - from + 1) * geometry.pitch - illustration.system.gapUnits) /
-                geometry.totalWidth
-              : 1;
-
-            return (
-              <div
-                key={index}
-                className="bar-preview-seam"
-                aria-hidden="true"
-                style={{
-                  insetBlockStart: `${((geometry.padding + seam.row) / geometry.totalHeight) * 100}%`,
-                  blockSize: `${(1 / geometry.totalHeight) * 100}%`,
-                  insetInlineStart: `${start * 100}%`,
-                  inlineSize: `${width * 100}%`,
-                }}
-              />
-            );
-          })
+        ? seams.map((seam, index) => (
+            <div
+              key={index}
+              className="bar-preview-seam"
+              aria-hidden="true"
+              style={seamStyle(seam)}
+            />
+          ))
         : null}
+      {/* The copy while it is being placed: same width, drawn faint so the original
+          underneath stays readable and it is clear this one is not committed yet. */}
+      {drag?.mode === "copy" ? (
+        <div
+          className="bar-preview-seam bar-preview-seam-copy"
+          aria-hidden="true"
+          style={seamStyle(drag.preview)}
+        />
+      ) : null}
       {/* What a click would remove, drawn stroke by stroke over the graphic so
           the extent of the connected part is unambiguous before committing. */}
       {hoverPart?.map((box, index) => (
