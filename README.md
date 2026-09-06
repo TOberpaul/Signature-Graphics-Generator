@@ -46,21 +46,3 @@ werden verworfen.
 
 Das DB Icon Set ist die zuverlässigste Quelle. Für Motive außerhalb davon eignet sich ein
 Bildwerkzeug wie Firefly.
-
-## Lokal starten
-
-Node.js ≥ 20.9 vorausgesetzt.
-
-```bash
-cp .env.example .env.local   # Werte für die DB-Brand-Assets eintragen
-npm install
-npm run dev                  # http://127.0.0.1:3000
-```
-
-Ohne die Werte in `.env.local` läuft die Anwendung im White-Label-Theme, also ohne
-DB-Schrift und DB-Farben.
-
-```bash
-npm test        # Tests
-npm run build   # Produktionsbuild inklusive TypeScript-Check
-```

@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Bar Illustration Generator",
+  title: "Signature Graphics Generator",
   description:
-    "Reduzierte Balkengrafiken aus Texteingabe - abstrahiert von der lokalen Kiro CLI, gerendert deterministisch als SVG.",
+    "Macht aus einer Silhouette eine Signature Graphic nach den Regeln der DB. Läuft vollständig im Browser, Export als SVG oder PNG.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
