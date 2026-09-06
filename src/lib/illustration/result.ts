@@ -70,6 +70,18 @@ export type ConversionResult = {
    * shows them in place so a removal stays visible and can be taken back.
    */
   removed?: RemovedSegment[];
-  /** Settings and construction report, shown in the debug view. */
+  /**
+   * The panel settings this result was produced with.
+   *
+   * Readable here because the panel owns them, which is what allows the current
+   * state to be captured without lifting every control into the parent.
+   */
+  settings?: {
+    threshold: number;
+    detail: number;
+    edgeTolerance: number;
+    mirror?: string;
+  };
+  /** Construction report, shown in the debug view. */
   raw?: unknown;
 };

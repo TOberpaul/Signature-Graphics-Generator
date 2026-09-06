@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DBButton,
   DBCard,
@@ -128,6 +128,19 @@ export function Generator() {
   const file = useImageFile(setError);
   const hasImage = Boolean(file.image);
 
+  // Preset capture, switched on with `?preset` in the URL.
+  //
+  // The sliders can simply be read off the panel, but the seams and the removals
+  // cannot - they are coordinates on the grid. So there has to be a way to read the
+  // current state out as a value. Behind a URL flag rather than in the interface:
+  // it is a tool for setting up a preset, not something to explain to everyone.
+  const [presetMode, setPresetMode] = useState(false);
+  const [presetCopied, setPresetCopied] = useState(false);
+
+  useEffect(() => {
+    setPresetMode(new URLSearchParams(window.location.search).has("preset"));
+  }, []);
+
   // Counts the templates loaded so far. Used as the settings panel's key, so a
   // new image remounts it and every construction setting is back at its default.
   // The settings belong to the template they were dialled in for; carrying a
@@ -182,6 +195,31 @@ export function Generator() {
     setCustomName(trimmed.length > 0 ? trimmed : null);
     setNameOpen(false);
   }, [nameDraft]);
+
+  /**
+   * Puts the current state on the clipboard as JSON, and logs it as a fallback for
+   * when the clipboard is not available.
+   */
+  const copyPreset = useCallback(() => {
+    if (!result) return;
+
+    const preset = {
+      settings: result.settings,
+      colour,
+      seams,
+      removedParts,
+    };
+
+    const json = JSON.stringify(preset, null, 2);
+    console.log("Preset:\n" + json);
+    void navigator.clipboard?.writeText(json).then(
+      () => {
+        setPresetCopied(true);
+        window.setTimeout(() => setPresetCopied(false), 2000);
+      },
+      () => setPresetCopied(false),
+    );
+  }, [result, colour, seams, removedParts]);
 
   const runExport = useCallback(async () => {
     if (!result) return;
@@ -406,6 +444,22 @@ export function Generator() {
                 </DBInfotext>
               ) : null}
             </DBStack>
+
+            {/* Only with `?preset` in the URL. Copies the current state as JSON so
+                it can be pasted in as a template's starting point. */}
+            {presetMode ? (
+              <DBButton
+                type="button"
+                variant="ghost"
+                size="medium"
+                width="full"
+                icon="copy"
+                disabled={!result}
+                onClick={copyPreset}
+              >
+                {presetCopied ? "Preset kopiert" : "Preset kopieren"}
+              </DBButton>
+            ) : null}
 
             {error ? <DBInfotext semantic="critical">{error}</DBInfotext> : null}
           </div>

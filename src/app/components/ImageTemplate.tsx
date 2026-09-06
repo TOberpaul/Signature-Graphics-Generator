@@ -26,8 +26,24 @@ type Props = {
   manualSeams?: Seam[];
   /** Points at connected parts the user removed by hand in the preview. */
   removedParts?: SegmentAnchor[];
+  /** Start values for the controls, for a template that comes with a preset. */
+  initial?: TemplateSettings;
   onResult: (result: ConversionResult) => void;
   onError: (message: string) => void;
+};
+
+/**
+ * The settings of the panel, as a plain value.
+ *
+ * Used in both directions: to open a template with something already dialled in,
+ * and to read back what is currently set. `mirror` being absent means mirroring is
+ * off, which keeps the two-control pair (on/off plus which half) as one field.
+ */
+export type TemplateSettings = {
+  threshold?: number;
+  detail?: number;
+  edgeTolerance?: number;
+  mirror?: MirrorMode;
 };
 
 /**
@@ -99,6 +115,7 @@ export function ImageTemplate({
   allowExtendedFormat,
   manualSeams,
   removedParts,
+  initial,
   onResult,
   onError,
 }: Props) {
@@ -109,11 +126,14 @@ export function ImageTemplate({
   // is fixed, so moving the threshold can only change which cells are filled.
   const image = useMemo(() => (rawImage ? cropToContent(rawImage) : null), [rawImage]);
 
-  const [threshold, setThreshold] = useState(0.5);
-  const [detail, setDetail] = useState(0);
-  const [edgeTolerance, setEdgeTolerance] = useState(0);
-  const [mirrorOn, setMirrorOn] = useState(false);
-  const [mirrorHalf, setMirrorHalf] = useState<MirrorMode>("left");
+  // Start values, so a template can be opened with settings already dialled in.
+  // The panel is remounted for every new template, so these are read once and the
+  // controls own them from then on.
+  const [threshold, setThreshold] = useState(initial?.threshold ?? 0.5);
+  const [detail, setDetail] = useState(initial?.detail ?? 0);
+  const [edgeTolerance, setEdgeTolerance] = useState(initial?.edgeTolerance ?? 0);
+  const [mirrorOn, setMirrorOn] = useState(initial?.mirror !== undefined);
+  const [mirrorHalf, setMirrorHalf] = useState<MirrorMode>(initial?.mirror ?? "left");
 
   const disabled = !image;
 
@@ -198,10 +218,17 @@ export function ImageTemplate({
       warnings,
       overlay,
       removed: pruned.removed,
+      // The panel owns these, so this is where they can be read from - which is
+      // what makes it possible to capture a preset without lifting every control
+      // into the parent.
+      settings: {
+        threshold,
+        detail,
+        edgeTolerance,
+        ...(mirrorOn ? { mirror: mirrorHalf } : {}),
+      },
       raw: {
         source: "image-template",
-        threshold,
-        mirror,
         plan,
         construction: report,
       },
