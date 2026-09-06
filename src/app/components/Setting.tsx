@@ -98,6 +98,7 @@ export function RangeSetting({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
+        aria-describedby={`${id}-help`}
       />
     </Setting>
   );
