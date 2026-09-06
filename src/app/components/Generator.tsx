@@ -196,7 +196,7 @@ export function Generator() {
 
       setExportOpen(false);
     } catch {
-      setError("Der Export ist fehlgeschlagen.");
+      setError("Der Export hat nicht funktioniert. Bitte noch einmal versuchen.");
     } finally {
       setExporting(false);
     }
@@ -282,8 +282,7 @@ export function Generator() {
               settings shows it, since the tooltip anchors to this container. */}
           {!hasImage ? (
             <DBTooltip placement="right">
-              Alle Einstellungen sind deaktiviert, weil noch kein Bild
-              hochgeladen ist.
+              Erst ein Bild auswählen, dann sind die Einstellungen verfügbar.
             </DBTooltip>
           ) : null}
 
@@ -346,18 +345,16 @@ export function Generator() {
                     icon="bin"
                     label={`Alle ${seams.length} ${
                       seams.length === 1 ? "Linie" : "Linien"
-                    } löschen`}
+                    } entfernen`}
                     onClick={() => setSeams([])}
                   />
                 ) : null}
               </div>
               {seamTool ? (
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
-                  Ein Klick setzt eine Linie über die ganze Breite, seitwärts
-                  ziehen begrenzt sie auf einzelne Striche. An den Enden ziehen
-                  verlängert, an der Unterkante ziehen macht den Schnitt 4 dp
-                  hoch, in der Mitte ziehen verschiebt. Mit Option kopieren,
-                  Doppelklick entfernt.
+                  Klicken setzt eine Linie. Seitwärts ziehen macht sie kürzer, an
+                  der Unterkante ziehen höher, in der Mitte ziehen verschiebt sie.
+                  Option kopiert, Doppelklick entfernt.
                 </DBInfotext>
               ) : null}
 
@@ -386,7 +383,7 @@ export function Generator() {
                     />
                     <IconAction
                       icon="bin"
-                      label={`Alle ${removedParts.length} Löschungen zurücknehmen`}
+                      label={`Alle ${removedParts.length} Striche zurückholen`}
                       onClick={() => setRemovedParts([])}
                     />
                   </>
@@ -394,10 +391,9 @@ export function Generator() {
               </div>
               {deleteTool ? (
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
-                  Ein Klick entfernt den markierten Abschnitt, Ziehen wischt
-                  mehrere weg. Mit Shift wird der ganze zusammenhängende Bereich
-                  markiert. Gelöschtes bleibt rot sichtbar, ein Klick darauf holt
-                  es zurück.
+                  Klicken löscht den markierten Strich, Ziehen wischt mehrere weg.
+                  Shift nimmt den ganzen zusammenhängenden Bereich. Gelöschtes
+                  bleibt rot sichtbar, ein Klick darauf holt es zurück.
                 </DBInfotext>
               ) : null}
             </DBStack>
@@ -485,13 +481,12 @@ export function Generator() {
                   </DBInfotext>
                 ))}
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
-                  {/* The format is only repeated here when there is no warning
-                      carrying it (square motifs), so it never shows twice. */}
+                  {/* Stroke width, gap and safe area were listed here too, but they
+                      are fixed by the system and never change - so they were noise
+                      rather than information. The format is only repeated when no
+                      warning already carries it, so it never shows twice. */}
                   {result.warnings.length === 0 ? `${formatLabel(result)} · ` : ""}
-                  {result.illustration.bars.length} Striche · Schutzraum{" "}
-                  {result.illustration.canvas.paddingUnits} dp · Strich{" "}
-                  {result.illustration.system.barWidthUnits} dp / Abstand{" "}
-                  {result.illustration.system.gapUnits} dp
+                  {result.illustration.bars.length} Striche
                 </DBInfotext>
               </div>
 
@@ -558,7 +553,7 @@ export function Generator() {
                 Bild auswählen
               </DBButton>
               <DBInfotext semantic="adaptive" showIcon={false}>
-                Schwarze Silhouette auf weißem Hintergrund funktioniert am besten.
+                Am besten eine schwarze Silhouette auf weißem Hintergrund.
               </DBInfotext>
             </DBStack>
           </div>
@@ -598,7 +593,7 @@ export function Generator() {
               />
             ) : (
               <DBInfotext semantic="informational" size="small">
-                SVG ist auflösungsunabhängig und skaliert ohne Qualitätsverlust.
+                SVG lässt sich beliebig groß skalieren.
               </DBInfotext>
             )}
           </DBStack>
@@ -641,7 +636,7 @@ export function Generator() {
               onChange={(event) => setNameDraft(event.target.value)}
             />
             <DBInfotext semantic="adaptive" size="small" showIcon={false}>
-              Wird oben angezeigt und als Dateiname beim Export verwendet.
+              Wird oben angezeigt und beim Export als Dateiname verwendet.
             </DBInfotext>
           </DBStack>
 

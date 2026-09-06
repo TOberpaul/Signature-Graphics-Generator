@@ -147,7 +147,7 @@ export function ImageTemplate({
     );
 
     if (illustration.bars.length === 0) {
-      onError("Aus dem Bild ließ sich keine Fläche ableiten. Schwellwert anpassen.");
+      onError("Aus diesem Bild entsteht keine Form. Schwellwert niedriger stellen.");
       return;
     }
 
@@ -167,7 +167,10 @@ export function ImageTemplate({
 
     const validation = validateIllustration(pruned.illustration);
     if (!validation.ok) {
-      onError(`Die konstruierte Grafik ist ungültig: ${validation.errors[0]}`);
+      // The validation message names bars and segments, which means nothing to
+      // someone using the tool. Logged for us, plain wording for them.
+      console.error("Invalid illustration:", validation.errors);
+      onError("Diese Kombination ergibt keine gültige Grafik. Bitte eine Einstellung leicht ändern.");
       return;
     }
 
@@ -176,8 +179,8 @@ export function ImageTemplate({
         ? []
         : [
             plan.format === "portrait"
-              ? `Hohes Motiv: Format ${plan.formatDp.widthDp}×${plan.formatDp.heightDp} dp.`
-              : `Breites Motiv: Format ${plan.formatDp.widthDp}×${plan.formatDp.heightDp} dp.`,
+              ? `Hohes Format: ${plan.formatDp.widthDp}×${plan.formatDp.heightDp} dp`
+              : `Breites Format: ${plan.formatDp.widthDp}×${plan.formatDp.heightDp} dp`,
           ];
 
     const overlay =
@@ -226,7 +229,7 @@ export function ImageTemplate({
       <RangeSetting
         id="threshold"
         label={`Schwellwert ${threshold.toFixed(2)}`}
-        help="Die eine Entscheidung pro Rasterzelle: ab welcher Flächendeckung eine Zelle zum Strich wird. Gemessen wird direkt auf dem Strichraster, also am echten Bild - nicht an einer Zwischenmaske. Niedrig lässt die Form wachsen und nimmt weiche Ränder mit, hoch lässt sie schrumpfen und dünne Teile abreißen."
+        help="Wie viel von der Vorlage als Fläche gilt. Niedrig macht die Form größer, hoch kleiner."
         value={threshold}
         min={0.05}
         max={0.95}
@@ -238,13 +241,11 @@ export function ImageTemplate({
       <RangeSetting
         id="detail"
         label={`Innenstruktur ${Math.round(detail * 100)} %`}
-        help="Misst das Innere strenger als den Umriss, mit einem zweiten Durchgang. Damit lässt sich der Schwellwert niedrig halten, damit die Grundform sauber sitzt, und trotzdem kommen Fenster, Portale und Gitterwerk als Lücken heraus. Nur eingeschlossene Flächen werden geöffnet - die weiche Außenkante bleibt unberührt, der Umriss kann also nicht ausfransen."
+        help="Öffnet Fenster und Durchgänge im Inneren. Der Umriss bleibt dabei unverändert."
         state={
           detail === 0
-            ? "Aus: die Form bleibt massiv, nur der Umriss zählt."
-            : detail <= 0.5
-              ? "Öffnet die deutlich hellen Flächen im Inneren."
-              : "Öffnet auch schwach abgesetzte Flächen im Inneren."
+            ? "Aus: die Form bleibt massiv."
+            : "Je weiter rechts, desto mehr Öffnungen."
         }
         value={detail}
         min={0}
@@ -257,11 +258,11 @@ export function ImageTemplate({
       <RangeSetting
         id="edgeTolerance"
         label={`Kantenausgleich ${edgeTolerance} dp`}
-        help="Zieht Kanten, die fast auf einer Ebene liegen, auf eine gemeinsame Ebene. Hilft gegen Perspektive in der Vorlage, die Strichenden ungleich ausfransen lässt. Die Toleranz ist der Schutz: nur Kanten innerhalb dieser Spanne verschmelzen, bewusste Abstufungen wie Turmspitzen sind größer und bleiben erhalten."
+        help="Richtet Strichenden aus, die knapp gegeneinander verschoben sind. Hilft, wenn die Vorlage leicht schräg ist."
         state={
           edgeTolerance === 0
-            ? "Aus: jede Kante bleibt, wo die Vorlage sie hat."
-            : `Kanten bis ${edgeTolerance} dp Abstand rasten auf eine Ebene.`
+            ? "Aus: jede Kante bleibt, wo sie ist."
+            : `Enden bis ${edgeTolerance} dp Abstand kommen auf eine Höhe.`
         }
         value={edgeTolerance}
         min={0}
@@ -273,7 +274,7 @@ export function ImageTemplate({
 
       <Setting
         id="mirror-help"
-        help="Erzwingt exakte Spiegelsymmetrie auf dem Raster, bevor die Regeln laufen. Nur für echte Frontalansichten sinnvoll. Der Kantenausgleich kann die Symmetrie danach minimal wieder brechen."
+        help="Macht die Grafik exakt symmetrisch. Nur bei Frontalansichten sinnvoll."
         disabled={disabled}
       >
         <DBCheckbox
@@ -288,7 +289,7 @@ export function ImageTemplate({
       {mirrorOn && !disabled ? (
         <Setting
           id="mirror-half-help"
-          help="Welche Hälfte maßgeblich ist. Links und rechts erhalten die Form exakt, beide vereinen behält jedes Detail beider Seiten und macht die Form dadurch etwas breiter."
+          help="Welche Hälfte auf die andere übertragen wird. Beide vereinen behält die Details von links und rechts."
         >
           {/* The floating variant renders an empty placeholder option by default.
               There is always a half selected, so there is nothing to place hold. */}
