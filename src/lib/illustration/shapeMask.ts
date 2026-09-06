@@ -337,6 +337,8 @@ export type SignatureOptions = {
   edgeTolerance?: number;
   /** Gaps below this size in dp are swallowed. 0 keeps every gap. */
   fuseGapsBelow?: number;
+  /** Seams cut by hand, optionally limited to a range of stroke slots. */
+  manualSeams?: Seam[];
   /**
    * Set when the template was already cropped to its content, so the grid's full
    * extent *is* the motif.
@@ -415,6 +417,7 @@ export function maskToSignature(
   const strokes = constructStrokes(sampled, {
     edgeTolerance: options.edgeTolerance,
     fuseGapsBelow: options.fuseGapsBelow,
+    manualSeams: options.manualSeams,
   });
   const illustration = strokesToIllustration(document, strokes, plan);
 

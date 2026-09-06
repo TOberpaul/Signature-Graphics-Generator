@@ -747,18 +747,43 @@ function spanOfLevel(columns: Column[], x: number, run: Run): number {
  */
 function removeFragments(columns: Column[], rows: number, report: ConstructionReport): void {
   for (const column of columns) {
+    const sorted = [...column.runs].sort((a, b) => a.y - b.y);
     const keep: Run[] = [];
 
-    for (const run of column.runs) {
-      if (run.height >= DP.minStrokeLength || run.level) {
-        keep.push(grow(run, rows));
+    for (const [index, run] of sorted.entries()) {
+      if (run.height >= DP.minStrokeLength) {
+        keep.push(run);
         continue;
       }
-      report.fragmentsRemoved += 1;
+
+      if (!run.level) {
+        report.fragmentsRemoved += 1;
+        continue;
+      }
+
+      // A level is grown rather than dropped, but only into the space its
+      // neighbours leave: the run kept above it, and the next run that will
+      // survive below it. A tight gap has to remain on both sides.
+      const above = keep[keep.length - 1];
+      const below = sorted
+        .slice(index + 1)
+        .find((other) => other.height >= DP.minStrokeLength || other.level);
+
+      const floor = above ? above.y + above.height + DP.tightVerticalGap : 0;
+      const ceiling = below ? below.y - DP.tightVerticalGap : rows;
+
+      const grown = growWithin(run, floor, ceiling);
+      if (grown) {
+        keep.push(grown);
+      } else {
+        report.fragmentsRemoved += 1;
+      }
     }
 
-    if (keep.length === 0 && column.runs.length > 0) {
-      const longest = column.runs.reduce((best, run) =>
+    // A column emptied completely keeps its longest run, so the silhouette does
+    // not lose a whole stroke to the minimum length rule.
+    if (keep.length === 0 && sorted.length > 0) {
+      const longest = sorted.reduce((best, run) =>
         run.height > best.height ? run : best,
       );
       keep.push(grow({ ...longest }, rows));
@@ -774,6 +799,27 @@ function grow(run: Run, rows: number): Run {
   if (run.height >= DP.minStrokeLength) return run;
   const height = DP.minStrokeLength;
   const y = Math.max(0, Math.min(run.y, rows - height));
+  return { ...run, y, height };
+}
+
+/**
+ * Grows a run to the minimum length inside `[floor, ceiling)`, or returns null
+ * when there is not enough room.
+ *
+ * The bounds are what {@link grow} is missing: a short run at the very bottom has
+ * to move up to fit its 4 dp, and moving up without looking pushes it straight
+ * into the run above - two overlapping segments, which is invalid geometry. When
+ * the space between its neighbours cannot hold a legal stroke there is nothing to
+ * grow into, and the run is a fragment after all.
+ */
+function growWithin(run: Run, floor: number, ceiling: number): Run | null {
+  if (run.height >= DP.minStrokeLength) return run;
+
+  const height = DP.minStrokeLength;
+  if (ceiling - floor < height) return null;
+
+  // Stay as close to where the run actually is as the space allows.
+  const y = Math.max(floor, Math.min(run.y, ceiling - height));
   return { ...run, y, height };
 }
 

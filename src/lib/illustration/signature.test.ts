@@ -981,3 +981,91 @@ describe("horizontal spacing", () => {
     }
   });
 });
+
+describe("valid geometry under every combination", () => {
+  /**
+   * A detailed motif: many short runs stacked in one column, some of them right at
+   * the bottom edge. Growing a short run to the minimum length has to move it up
+   * there, and moving up without checking pushes it into the run above - which is
+   * an overlapping segment and rejected by validation.
+   */
+  const detailed = grid([
+    "..####..",
+    ".#....#.",
+    "#..##..#",
+    "#.#..#.#",
+    "#.#..#.#",
+    "#..##..#",
+    ".#....#.",
+    "..####..",
+    "..#..#..",
+    "..#..#..",
+    "..####..",
+    "..#..#..",
+  ]);
+
+  const shapes: Array<[string, OccupancyGrid]> = [
+    ["detailed", detailed],
+    ["block", block(9, 24)],
+    [
+      "spokes",
+      grid([
+        "#.#.#.#.#",
+        "#.#.#.#.#",
+        "#########",
+        "#.#.#.#.#",
+        "#.#.#.#.#",
+        "#########",
+        "..#...#..",
+        "..#...#..",
+      ]),
+    ],
+  ];
+
+  it("produces a valid illustration for every shape and seam combination", () => {
+    for (const [name, shape] of shapes) {
+      for (const manualSeams of [
+        [],
+        [{ row: 3 }],
+        [{ row: 3 }, { row: 7 }],
+        [{ row: 2, from: 1, to: 3 }],
+        [{ row: 2 }, { row: 3 }, { row: 4 }],
+      ]) {
+        for (const fuseGapsBelow of [0, DP.intentionalVerticalGap]) {
+          const { illustration } = maskToSignature(
+            { subject: name, grid: shape },
+            { manualSeams, fuseGapsBelow, allowExtendedFormat: true },
+          );
+
+          const validation = validateIllustration(illustration);
+          expect(
+            validation.ok,
+            `${name} / seams ${JSON.stringify(manualSeams)} / fuse ${fuseGapsBelow}: ${
+              validation.ok ? "" : validation.errors[0]
+            }`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("keeps segments ordered and clear of each other in every column", () => {
+    for (const [, shape] of shapes) {
+      for (const manualSeams of [[], [{ row: 3 }], [{ row: 2 }, { row: 3 }]]) {
+        const constructed = constructStrokes(shape, { manualSeams });
+
+        for (const column of constructed.columns) {
+          const sorted = [...column.runs].sort((a, b) => a.y - b.y);
+          expect(column.runs).toEqual(sorted);
+
+          for (let index = 1; index < sorted.length; index += 1) {
+            const previous = sorted[index - 1];
+            expect(sorted[index].y).toBeGreaterThanOrEqual(
+              previous.y + previous.height,
+            );
+          }
+        }
+      }
+    }
+  });
+});
