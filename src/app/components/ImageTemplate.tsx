@@ -99,6 +99,7 @@ export function ImageTemplate({
   const image = useMemo(() => (rawImage ? cropToContent(rawImage) : null), [rawImage]);
 
   const [threshold, setThreshold] = useState(0.5);
+  const [detail, setDetail] = useState(0);
   const [cleanup, setCleanup] = useState(0);
   const [edgeTolerance, setEdgeTolerance] = useState(0);
   const [mirrorOn, setMirrorOn] = useState(false);
@@ -121,6 +122,7 @@ export function ImageTemplate({
       },
       {
         threshold,
+        detail,
         cleanup,
         mirror,
         allowExtendedFormat,
@@ -194,6 +196,7 @@ export function ImageTemplate({
   }, [
     image,
     threshold,
+    detail,
     mirrorOn,
     mirrorHalf,
     cleanup,
@@ -220,6 +223,25 @@ export function ImageTemplate({
         step={0.01}
         disabled={disabled}
         onChange={setThreshold}
+      />
+
+      <RangeSetting
+        id="detail"
+        label={`Innenstruktur ${Math.round(detail * 100)} %`}
+        help="Misst das Innere strenger als den Umriss, mit einem zweiten Durchgang. Damit lässt sich der Schwellwert niedrig halten, damit die Grundform sauber sitzt, und trotzdem kommen Fenster, Portale und Gitterwerk als Lücken heraus. Nur eingeschlossene Flächen werden geöffnet - die weiche Außenkante bleibt unberührt, der Umriss kann also nicht ausfransen."
+        state={
+          detail === 0
+            ? "Aus: die Form bleibt massiv, nur der Umriss zählt."
+            : detail <= 0.5
+              ? "Öffnet die deutlich hellen Flächen im Inneren."
+              : "Öffnet auch schwach abgesetzte Flächen im Inneren."
+        }
+        value={detail}
+        min={0}
+        max={1}
+        step={0.05}
+        disabled={disabled}
+        onChange={setDetail}
       />
 
       <RangeSetting

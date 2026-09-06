@@ -12,7 +12,7 @@
  * owns all geometry.
  */
 import { LIMITS, PITCH_UNITS } from "./geometry";
-import { DEFAULT_THRESHOLD, imageToGrid } from "./imageMask";
+import { DEFAULT_THRESHOLD, imageToGridWithDetail } from "./imageMask";
 import type { RasterImage } from "./imageMask";
 import { normalizeGrid, occupancyToIllustration, trimGrid } from "./occupancy";
 import type { OccupancyDocument, OccupancyGrid } from "./occupancy";
@@ -363,6 +363,22 @@ export type SignatureOptions = {
  *
  * Mirroring is applied to the mask only, before the rules run.
  */
+/**
+ * Maps the detail strength onto the second, stricter threshold.
+ *
+ * Interpolating from the outline threshold upwards keeps the strict pass strict by
+ * construction: it can never fall below the outline, where it would have nothing
+ * to add. The ceiling stays short of 1 because a cell needs some room below full
+ * coverage to still count as material.
+ */
+const DETAIL_THRESHOLD_CEILING = 0.95;
+
+export function detailThreshold(threshold: number, detail: number): number {
+  const strength = Math.min(Math.max(detail, 0), 1);
+  if (strength <= 0) return threshold;
+  return threshold + strength * (DETAIL_THRESHOLD_CEILING - threshold);
+}
+
 export function maskToSignature(
   document: OccupancyDocument,
   options: SignatureOptions = {},
@@ -417,6 +433,12 @@ export type ImageSignatureOptions = {
   edgeTolerance?: number;
   /** Gaps below this size in dp are swallowed. 0 keeps every gap. */
   fuseGapsBelow?: number;
+  /**
+   * How strictly the inside is measured, from 0 to 1, independently of the
+   * outline. 0 leaves the shape solid; higher values open up windows, portals and
+   * other inner structure without touching the silhouette.
+   */
+  detail?: number;
   /** Seams cut by hand, optionally limited to a range of stroke slots. */
   manualSeams?: Seam[];
   /** Set for a light silhouette on a dark background. */
@@ -463,11 +485,15 @@ export function imageToSignature(
   const plan = planSignatureCanvasForExtent(image.width, image.height, format);
 
   // 2. Measure the image straight onto the fitted stroke grid and threshold it.
-  const measured = imageToGrid(
+  // The outline follows `threshold`; `detail` adds a second, stricter pass that
+  // only carves openings out of the inside, leaving the outline alone.
+  const threshold = options.threshold ?? DEFAULT_THRESHOLD;
+  const measured = imageToGridWithDetail(
     image,
     plan.columnsUsed,
     plan.rowsUsed,
-    options.threshold ?? DEFAULT_THRESHOLD,
+    threshold,
+    detailThreshold(threshold, options.detail ?? 0),
     options.invert ?? false,
   );
 

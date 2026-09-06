@@ -256,6 +256,119 @@ export function imageToGrid(
 }
 
 /**
+ * Thresholds twice on one measurement: the outline generously, the inside
+ * strictly, and punches the openings the strict pass finds into the generous one.
+ *
+ * A single threshold has to serve two purposes at once, and they pull in opposite
+ * directions. Low, and the outline is clean while every window and portal fills
+ * in, because their soft edges carry enough ink to pass. High, and the inner
+ * structure appears while the outline itself starts breaking up, because real
+ * wall is only partly covered too. Neither setting is wrong; the two decisions
+ * simply do not belong on one control.
+ *
+ * So the shape comes from `threshold` and the openings from `detailThreshold`.
+ * The distinction that makes this work: a cell the generous pass filled and the
+ * strict pass did not is only turned into a hole when its whole group sits
+ * enclosed by material. Groups that reach the outside are the soft edge of the
+ * silhouette, and eroding those is exactly what must not happen - that is the
+ * outline falling apart at a high threshold.
+ *
+ * `detailThreshold <= threshold` means there is nothing stricter to find, so the
+ * result is the plain single threshold grid.
+ */
+export function imageToGridWithDetail(
+  image: RasterImage,
+  columns: number,
+  rows: number,
+  threshold: number,
+  detailThreshold: number,
+  invert = false,
+): OccupancyGrid {
+  const cols = Math.max(1, Math.round(columns));
+  const rowCount = Math.max(1, Math.round(rows));
+
+  if (detailThreshold <= threshold) {
+    return imageToGrid(image, cols, rowCount, threshold, invert);
+  }
+
+  // One measurement, two decisions. Measuring twice would be the same numbers.
+  const values = inkCoverageGrid(image, cols, rowCount, invert);
+  const at = (x: number, y: number) => values[y * cols + x];
+
+  /** 0 = outside the shape, 1 = material, 2 = candidate for an opening. */
+  const state: Uint8Array = new Uint8Array(cols * rowCount);
+  for (let y = 0; y < rowCount; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      const ink = at(x, y);
+      state[y * cols + x] = ink < threshold ? 0 : ink >= detailThreshold ? 1 : 2;
+    }
+  }
+
+  // Flood fill each group of candidates. A group touching the outside - or the
+  // border, which is outside by definition - is the soft rim of the silhouette
+  // and stays filled. A fully enclosed group becomes an opening.
+  const visited = new Uint8Array(cols * rowCount);
+  const holes = new Uint8Array(cols * rowCount);
+
+  for (let start = 0; start < state.length; start += 1) {
+    if (state[start] !== 2 || visited[start]) continue;
+
+    const group: number[] = [];
+    const queue: number[] = [start];
+    visited[start] = 1;
+    let enclosed = true;
+
+    while (queue.length > 0) {
+      const index = queue.pop()!;
+      group.push(index);
+
+      const x = index % cols;
+      const y = (index - x) / cols;
+
+      // Sitting on the border means being open to the outside.
+      if (x === 0 || y === 0 || x === cols - 1 || y === rowCount - 1) {
+        enclosed = false;
+      }
+
+      const neighbours = [
+        y > 0 ? index - cols : -1,
+        y < rowCount - 1 ? index + cols : -1,
+        x > 0 ? index - 1 : -1,
+        x < cols - 1 ? index + 1 : -1,
+      ];
+
+      for (const neighbour of neighbours) {
+        if (neighbour < 0) continue;
+        if (state[neighbour] === 0) {
+          enclosed = false;
+          continue;
+        }
+        if (state[neighbour] === 2 && !visited[neighbour]) {
+          visited[neighbour] = 1;
+          queue.push(neighbour);
+        }
+      }
+    }
+
+    if (enclosed) {
+      for (const index of group) holes[index] = 1;
+    }
+  }
+
+  const gridRows: string[] = [];
+  for (let y = 0; y < rowCount; y += 1) {
+    let line = "";
+    for (let x = 0; x < cols; x += 1) {
+      const index = y * cols + x;
+      line += state[index] !== 0 && !holes[index] ? "#" : ".";
+    }
+    gridRows.push(line);
+  }
+
+  return { widthCells: cols, heightCells: rowCount, rows: gridRows };
+}
+
+/**
  * Ink level above which a pixel counts as content rather than empty background.
  *
  * This only decides where the empty border of a template ends - what belongs to

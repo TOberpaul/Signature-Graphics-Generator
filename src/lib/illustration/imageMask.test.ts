@@ -3,6 +3,8 @@ import {
   autoThreshold,
   contentBounds,
   cropToContent,
+  imageToGrid,
+  imageToGridWithDetail,
   imageToMask,
   inkCoverage,
   inkCoverageGrid,
@@ -10,7 +12,12 @@ import {
 } from "./imageMask";
 import type { RasterImage } from "./imageMask";
 import { shapeMetrics, trimGrid } from "./occupancy";
-import { imageToSignature, maskToIllustration, maskToSignature } from "./shapeMask";
+import {
+  detailThreshold,
+  imageToSignature,
+  maskToIllustration,
+  maskToSignature,
+} from "./shapeMask";
 import { validateIllustration } from "./validation";
 import { layoutRects } from "./renderer";
 import { GAP_UNITS } from "./geometry";
@@ -329,5 +336,95 @@ describe("placement after a content crop", () => {
     }
 
     expect(placements.size).toBe(1);
+  });
+});
+
+/**
+ * Builds an image with a mid grey level: "#" black, "+" grey, "." white.
+ *
+ * Grey is what the two thresholds are about. A cell that is only partly covered
+ * passes a low threshold and fails a high one, and that is true both for a window
+ * inside the shape and for the soft outer edge of the silhouette - which is
+ * exactly why they have to be told apart by position rather than by ink.
+ */
+function greyImage(rows: string[]): RasterImage {
+  const width = rows[0].length;
+  const height = rows.length;
+  const data = new Uint8ClampedArray(width * height * 4);
+
+  for (const [y, row] of rows.entries()) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const char = row[x];
+      const value = char === "#" ? 0 : char === "+" ? 128 : 255;
+      data[offset] = value;
+      data[offset + 1] = value;
+      data[offset + 2] = value;
+      data[offset + 3] = 255;
+    }
+  }
+
+  return { width, height, data };
+}
+
+describe("imageToGridWithDetail", () => {
+  // Grey ring around a black wall with a grey middle. At a low threshold every
+  // grey cell is filled; the strict pass has to open the middle and keep the ring.
+  const template = [
+    "+++++",
+    "+###+",
+    "+#+#+",
+    "+###+",
+    "+++++",
+  ];
+
+  it("opens an enclosed area without eroding the outline", () => {
+    const grid = imageToGridWithDetail(greyImage(template), 5, 5, 0.3, 0.8);
+
+    expect(grid.rows).toEqual([
+      "#####",
+      "#####",
+      "##.##",
+      "#####",
+      "#####",
+    ]);
+  });
+
+  it("matches the single threshold grid when there is nothing stricter to find", () => {
+    const image = greyImage(template);
+    // detailThreshold at or below the threshold has no stricter decision to make.
+    expect(imageToGridWithDetail(image, 5, 5, 0.3, 0.3).rows).toEqual(
+      imageToGrid(image, 5, 5, 0.3).rows,
+    );
+    expect(imageToGridWithDetail(image, 5, 5, 0.3, 0.1).rows).toEqual(
+      imageToGrid(image, 5, 5, 0.3).rows,
+    );
+  });
+
+  it("leaves an opening that reaches the edge closed", () => {
+    // The grey area now runs out to the border, so it is the soft rim of the
+    // silhouette rather than a window. Opening it would break the outline.
+    const open = ["+++++", "+###+", "+#+++", "+###+", "+++++"];
+    const grid = imageToGridWithDetail(greyImage(open), 5, 5, 0.3, 0.8);
+
+    expect(grid.rows.join("\n")).not.toContain(".");
+  });
+});
+
+describe("detailThreshold", () => {
+  it("stays at the outline threshold when detail is off", () => {
+    expect(detailThreshold(0.4, 0)).toBe(0.4);
+  });
+
+  it("never falls below the outline threshold", () => {
+    for (const threshold of [0.05, 0.5, 0.9]) {
+      for (const detail of [0, 0.25, 0.5, 1]) {
+        expect(detailThreshold(threshold, detail)).toBeGreaterThanOrEqual(threshold);
+      }
+    }
+  });
+
+  it("keeps room below full coverage at full strength", () => {
+    expect(detailThreshold(0.1, 1)).toBeLessThan(1);
   });
 });
