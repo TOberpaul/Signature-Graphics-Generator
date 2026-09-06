@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DBCheckbox, DBSelect } from "@db-ux/react-core-components";
 import { cropToContent } from "@/lib/illustration/imageMask";
 import type { RasterImage } from "@/lib/illustration/imageMask";
-import { imageToSignature } from "@/lib/illustration/shapeMask";
+import { fuseGapsForDetail, imageToSignature } from "@/lib/illustration/shapeMask";
 import type { MirrorMode } from "@/lib/illustration/shapeMask";
 import { validateIllustration } from "@/lib/illustration/validation";
 import { DP, DP_PITCH } from "@/lib/illustration/geometry";
@@ -137,11 +137,12 @@ export function ImageTemplate({
         mirror,
         allowExtendedFormat,
         edgeTolerance,
-        // One continuous stroke per column, its length given by the outline. Gaps
-        // below a deliberate opening are swallowed, so only real negative space
-        // like an arch or a passage survives - sampling every window and bit of
-        // masonry shatters the strokes into noise, which is never wanted.
-        fuseGapsBelow: DP.intentionalVerticalGap,
+        // Driven by the detail setting, because it is the other half of the same
+        // question. At 0 each column is one continuous stroke whose length the
+        // outline gives, and only openings of 4 dp or more survive. Turned up, thin
+        // openings survive too - which is the only way a template's own white
+        // outlines, like the ring around a camera lens, can come through.
+        fuseGapsBelow: fuseGapsForDetail(detail),
         manualSeams,
       },
     );

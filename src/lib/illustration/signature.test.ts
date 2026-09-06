@@ -11,7 +11,7 @@ import {
   snapSeamHeight,
   strokesToIllustration,
 } from "./signature";
-import { maskToSignature } from "./shapeMask";
+import { fuseGapsForDetail, maskToSignature } from "./shapeMask";
 import { validateIllustration } from "./validation";
 import { layoutRects, renderIllustration } from "./renderer";
 import type { OccupancyGrid } from "./occupancy";
@@ -1088,6 +1088,68 @@ describe("valid geometry under every combination", () => {
               previous.y + previous.height,
             );
           }
+        }
+      }
+    }
+  });
+});
+
+describe("detail drives how much fusing happens", () => {
+  /**
+   * A column with a 2 dp gap through it: what the white ring around a camera lens,
+   * or any outlined inner shape, looks like once sampled. Such a ring is white in
+   * the template from the start, so measuring the inside more strictly does nothing
+   * for it - whether it survives is decided by the fusing step alone.
+   */
+  const thinGap = grid([
+    "###",
+    "###",
+    "###",
+    "###",
+    "...",
+    "...",
+    "###",
+    "###",
+    "###",
+    "###",
+  ]);
+
+  it("swallows a thin opening at no detail and keeps it at full detail", () => {
+    const solid = constructStrokes(thinGap, { fuseGapsBelow: fuseGapsForDetail(0) });
+    const detailed = constructStrokes(thinGap, { fuseGapsBelow: fuseGapsForDetail(1) });
+
+    for (const column of solid.columns) expect(column.runs.length).toBe(1);
+    for (const column of detailed.columns) expect(column.runs.length).toBe(2);
+  });
+
+  it("maps detail onto the fusing threshold without ever rising", () => {
+    expect(fuseGapsForDetail(0)).toBe(DP.intentionalVerticalGap);
+    expect(fuseGapsForDetail(1)).toBe(0);
+
+    let previous = Number.POSITIVE_INFINITY;
+    for (let detail = 0; detail <= 1.0001; detail += 0.05) {
+      const fuse = fuseGapsForDetail(detail);
+      expect(fuse).toBeLessThanOrEqual(previous);
+      previous = fuse;
+    }
+  });
+
+  it("never leaves an illegal gap behind when fusing is opened up", () => {
+    // Fusing less means gaps of 2 and 3 dp can appear, and those are illegal. The
+    // later snapping is what has to pull them onto a legal size.
+    for (let detail = 0; detail <= 1.0001; detail += 0.25) {
+      const constructed = constructStrokes(grid(["###", "###", "###", "...", "...", "...", "###", "###", "###"]), {
+        fuseGapsBelow: fuseGapsForDetail(detail),
+      });
+
+      for (const column of constructed.columns) {
+        const runs = [...column.runs].sort((a, b) => a.y - b.y);
+        for (let index = 1; index < runs.length; index += 1) {
+          const gap = runs[index].y - (runs[index - 1].y + runs[index - 1].height);
+          expect(
+            gap === DP.tightVerticalGap || gap >= DP.intentionalVerticalGap,
+            `detail ${detail.toFixed(2)} left a ${gap} dp gap`,
+          ).toBe(true);
         }
       }
     }

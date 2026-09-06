@@ -11,7 +11,7 @@
  * designed instead of hand counted: the model reasons about area, the sampler
  * owns all geometry.
  */
-import { LIMITS, PITCH_UNITS } from "./geometry";
+import { DP, LIMITS, PITCH_UNITS } from "./geometry";
 import { DEFAULT_THRESHOLD, imageToGridWithDetail } from "./imageMask";
 import type { RasterImage } from "./imageMask";
 import { normalizeGrid, occupancyToIllustration, trimGrid } from "./occupancy";
@@ -379,6 +379,26 @@ export function detailThreshold(threshold: number, detail: number): number {
   const strength = Math.min(Math.max(detail, 0), 1);
   if (strength <= 0) return threshold;
   return threshold + strength * (DETAIL_THRESHOLD_CEILING - threshold);
+}
+
+/**
+ * How small a gap may be and still get swallowed, for a given detail strength.
+ *
+ * The second half of the same control, and for many templates the half that
+ * actually matters. Measuring the inside more strictly only helps where the inside
+ * is *grey* - a partly covered area that a higher threshold turns into a hole. An
+ * outline that is already white in the template, like the ring around a camera
+ * lens, is a gap from the first measurement onwards; what removes it is the fusing
+ * step afterwards, because the ring is thinner than a deliberate opening.
+ *
+ * So detail also decides how much of that fusing happens: at 0 every gap below a
+ * deliberate opening closes and the shape stays solid, at full strength none of
+ * them do and thin outlines survive. Gaps left at illegal sizes are pulled to a
+ * legal one by `snapGaps` later, so opening this up cannot produce a 2 to 3 dp gap.
+ */
+export function fuseGapsForDetail(detail: number): number {
+  const strength = Math.min(Math.max(detail, 0), 1);
+  return Math.round((1 - strength) * DP.intentionalVerticalGap);
 }
 
 export function maskToSignature(
