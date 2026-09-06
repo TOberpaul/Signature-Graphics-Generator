@@ -1,7 +1,7 @@
 # Signature Graphics Generator
 
 Macht aus einer Silhouette eine Signature Graphic: nur senkrechte Striche, 2 dp breit,
-2 dp Abstand, konstruiert nach den Regeln des DB UX Design System v3.
+2 dp Abstand, konstruiert nach den Regeln der DB.
 
 **→ [Zur Anwendung](https://toberpaul.github.io/Signature-Graphics-Generator/)**
 
