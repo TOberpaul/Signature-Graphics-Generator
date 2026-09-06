@@ -347,10 +347,10 @@ export function Generator() {
               </div>
               {seamTool ? (
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
-                  Ein Klick setzt eine Linie über die ganze Breite. Seitwärts
-                  ziehen begrenzt sie auf einzelne Striche, etwa nur auf das
-                  Hauptgebäude. Eine bestehende Linie lässt sich verschieben, mit
-                  Option kopieren, per Doppelklick entfernen.
+                  Ein Klick setzt eine Linie über die ganze Breite, seitwärts
+                  ziehen begrenzt sie auf einzelne Striche. An den Enden ziehen
+                  verlängert und verkürzt, in der Mitte ziehen verschiebt in beide
+                  Richtungen. Mit Option kopieren, Doppelklick entfernt.
                 </DBInfotext>
               ) : null}
 

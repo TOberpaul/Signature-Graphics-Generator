@@ -85,18 +85,25 @@ export function BarPreview({
   /** Slot under the cursor, needed to tell seams sharing a row apart. */
   const [hoverSlot, setHoverSlot] = useState(0);
   /**
-   * The seam currently being dragged, by its index in `seams`.
+   * The gesture in progress on a seam.
    *
-   * Not by row: several seams can share a row, which is the point of limiting
-   * them - the same level cut left and right while the centre stays whole.
+   * A seam is addressed by its index in `seams`, not by its row: several seams can
+   * share a row, which is the point of limiting them - the same level cut left and
+   * right while the centre stays whole.
+   *
+   * - `draw` while a new seam is being pulled out. `anchorSlot` is where the
+   *   pointer went down; moving away from it limits the seam to the slots covered.
+   * - `move` shifts the seam, keeping its length. `grabSlot` is the offset the
+   *   pointer had inside it, so it does not jump to the cursor.
+   * - `from` / `to` drag one end, which is how a seam is lengthened or shortened.
    */
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  /**
-   * Slot the pointer went down on while drawing a new seam. Dragging away from it
-   * limits the seam to the slots covered; releasing without moving sideways
-   * leaves it spanning the full width.
-   */
-  const [drawFromSlot, setDrawFromSlot] = useState<number | null>(null);
+  type SeamDrag =
+    | { index: number; mode: "draw"; anchorSlot: number }
+    | { index: number; mode: "move"; grabSlot: number }
+    | { index: number; mode: "from" }
+    | { index: number; mode: "to" };
+
+  const [drag, setDrag] = useState<SeamDrag | null>(null);
   /** Boxes of what a click would remove, while the delete tool is open. */
   const [hoverPart, setHoverPart] = useState<
     { x: number; y: number; width: number; height: number }[] | null
@@ -246,10 +253,32 @@ export function BarPreview({
     setHoverPart(point ? targetAt(point, event.shiftKey) : null);
   };
 
+  const lastSlot = Math.max(geometry.slots - 1, 0);
+
+  /** The seam's range as concrete slots, resolving an open range to the edges. */
+  const seamRange = (seam: Seam): { from: number; to: number } => ({
+    from: seam.from ?? 0,
+    to: seam.to ?? lastSlot,
+  });
+
+  /**
+   * Builds a seam from a slot range, dropping the range when it spans everything.
+   *
+   * Keeps one representation for "cuts the full width" instead of two that behave
+   * the same, so a seam dragged out to both edges is the same value as one that
+   * was never limited.
+   */
+  const seamWithRange = (row: number, from: number, to: number): Seam => {
+    const left = Math.min(Math.max(from, 0), lastSlot);
+    const right = Math.min(Math.max(to, 0), lastSlot);
+    return left <= 0 && right >= lastSlot ? { row } : { row, from: left, to: right };
+  };
+
   /** Does the seam cover this slot? An open range covers everything. */
-  const seamCovers = (seam: Seam, slot: number): boolean =>
-    slot >= (seam.from ?? Number.NEGATIVE_INFINITY) &&
-    slot <= (seam.to ?? Number.POSITIVE_INFINITY);
+  const seamCovers = (seam: Seam, slot: number): boolean => {
+    const { from, to } = seamRange(seam);
+    return slot >= from && slot <= to;
+  };
 
   /**
    * Index of the seam under the pointer, or -1.
@@ -258,12 +287,27 @@ export function BarPreview({
    * of a pair picks that one and not its counterpart on the right.
    */
   const seamIndexAt = (row: number, slot: number): number => {
-    const onRow = seams
+    const covering = seams
       .map((seam, index) => ({ seam, index }))
-      .filter(({ seam }) => Math.abs(seam.row - row) <= SEAM_GRAB_DP);
+      .filter(({ seam }) => Math.abs(seam.row - row) <= SEAM_GRAB_DP)
+      .find(({ seam }) => seamCovers(seam, slot));
 
-    const covering = onRow.find(({ seam }) => seamCovers(seam, slot));
     return covering ? covering.index : -1;
+  };
+
+  /**
+   * Which part of a seam the pointer is on: an end, or the body.
+   *
+   * The ends are the handles that lengthen and shorten it. A seam only offers them
+   * once it is long enough to still have a middle to grab, otherwise it could no
+   * longer be moved at all.
+   */
+  const seamGrip = (seam: Seam, slot: number): "from" | "to" | "move" => {
+    const { from, to } = seamRange(seam);
+    if (to - from < 2) return "move";
+    if (slot <= from) return "from";
+    if (slot >= to) return "to";
+    return "move";
   };
 
   // Pressing an existing seam picks it up; pressing empty space starts a new one
@@ -272,8 +316,9 @@ export function BarPreview({
     if (!onSeamsChange) return;
     const row = rowFromEvent(event);
     if (row === null) return;
+    const slot = slotFromEvent(event);
 
-    const existing = seamIndexAt(row, slotFromEvent(event));
+    const existing = seamIndexAt(row, slot);
     if (existing >= 0) {
       // Alt (Option) duplicates instead of moving, the usual gesture in drawing
       // tools. The copy keeps the range and is what gets dragged, which is the
@@ -282,12 +327,18 @@ export function BarPreview({
         const source = seams[existing];
         // Offset by a row, so the copy is not an exact duplicate - identical
         // seams are folded together - and is visible straight away.
-        const row = Math.min(source.row + 1, geometry.rows - 1);
-        onSeamsChange([...seams, { ...source, row }]);
-        setDragIndex(seams.length);
+        const copyRow = Math.min(source.row + 1, geometry.rows - 1);
+        onSeamsChange([...seams, { ...source, row: copyRow }]);
+        setDrag({ index: seams.length, mode: "move", grabSlot: slot });
         return;
       }
-      setDragIndex(existing);
+
+      const grip = seamGrip(seams[existing], slot);
+      setDrag(
+        grip === "move"
+          ? { index: existing, mode: "move", grabSlot: slot }
+          : { index: existing, mode: grip },
+      );
       return;
     }
 
@@ -295,46 +346,78 @@ export function BarPreview({
     // without moving leaves it as it is, which keeps a plain click the shortest
     // path to the common case. Appended, so the index stays put while dragging.
     onSeamsChange([...seams, { row }]);
-    setDragIndex(seams.length);
-    setDrawFromSlot(slotFromEvent(event));
+    setDrag({ index: seams.length, mode: "draw", anchorSlot: slot });
   };
 
   const handleMove = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!onSeamsChange) return;
     const row = rowFromEvent(event);
+    const slot = slotFromEvent(event);
     setHoverRow(row);
-    setHoverSlot(slotFromEvent(event));
+    setHoverSlot(slot);
 
-    if (dragIndex === null || row === null) return;
-    const dragged = seams[dragIndex];
+    if (!drag || row === null) return;
+    const dragged = seams[drag.index];
     if (!dragged) return;
 
     const replace = (seam: Seam) =>
-      onSeamsChange(seams.map((item, index) => (index === dragIndex ? seam : item)));
+      onSeamsChange(seams.map((item, index) => (index === drag.index ? seam : item)));
 
-    // While drawing a new seam, sideways movement defines the slot range. One
-    // slot of travel is treated as intent, so a click that wobbles by a pixel
-    // still cuts the full width.
-    if (drawFromSlot !== null) {
-      const slot = slotFromEvent(event);
-      const spans = Math.abs(slot - drawFromSlot) >= 1;
+    if (drag.mode === "draw") {
+      // Sideways movement defines the range. One slot of travel counts as intent,
+      // so a click that wobbles by a pixel still cuts the full width.
+      const spans = Math.abs(slot - drag.anchorSlot) >= 1;
       replace(
         spans
-          ? { row, from: Math.min(drawFromSlot, slot), to: Math.max(drawFromSlot, slot) }
+          ? seamWithRange(
+              row,
+              Math.min(drag.anchorSlot, slot),
+              Math.max(drag.anchorSlot, slot),
+            )
           : { row },
       );
       return;
     }
 
-    if (row === dragged.row) return;
-    // Moving an existing seam keeps whatever range it already has.
-    replace({ ...dragged, row });
+    const { from, to } = seamRange(dragged);
+
+    if (drag.mode === "from") {
+      // Dragging one end past the other flips them, so the seam cannot invert.
+      replace(seamWithRange(row, Math.min(slot, to), Math.max(slot, to)));
+      return;
+    }
+
+    if (drag.mode === "to") {
+      replace(seamWithRange(row, Math.min(from, slot), Math.max(from, slot)));
+      return;
+    }
+
+    // Move: the row follows the pointer and the range travels with it, keeping its
+    // length. Shifting is clamped rather than truncated, so pushing a seam against
+    // an edge slides it there instead of shortening it.
+    const limited = dragged.from !== undefined || dragged.to !== undefined;
+    if (!limited) {
+      if (row === dragged.row) return;
+      replace({ row });
+      return;
+    }
+
+    const width = to - from;
+    const shift = slot - drag.grabSlot;
+    const start = Math.min(Math.max(from + shift, 0), lastSlot - width);
+    if (row === dragged.row && start === from) return;
+
+    replace(seamWithRange(row, start, start + width));
+    setDrag({ ...drag, grabSlot: slot });
   };
 
-  const endDrag = () => {
-    setDragIndex(null);
-    setDrawFromSlot(null);
-  };
+  const endDrag = () => setDrag(null);
+
+  /** The seam under the cursor, for the cursor shape and the placement guide. */
+  const hoverSeam =
+    onSeamsChange && hoverRow !== null
+      ? seams[seamIndexAt(hoverRow, hoverSlot)]
+      : undefined;
 
   // Double click removes: a deliberate gesture, so a single click can be used for
   // placing and dragging without ever destroying a seam by accident.
@@ -359,10 +442,16 @@ export function BarPreview({
       className="bar-preview"
       data-seam-tool={
         onSeamsChange
-          ? dragIndex !== null
-            ? "dragging"
-            : hoverRow !== null && seamIndexAt(hoverRow, hoverSlot) >= 0
-              ? "grab"
+          ? drag
+            ? drag.mode === "from" || drag.mode === "to"
+              ? "resize"
+              : "dragging"
+            : hoverSeam
+              ? // The ends read as resizable, so it is discoverable that a seam can
+                // be lengthened rather than only moved.
+                seamGrip(hoverSeam, hoverSlot) === "move"
+                ? "grab"
+                : "resize"
               : "true"
           : undefined
       }
@@ -432,8 +521,7 @@ export function BarPreview({
         ? seams.map((seam, index) => {
             // A limited seam is drawn only over the slots it cuts, so its reach is
             // visible without having to read it off the strokes.
-            const from = seam.from ?? 0;
-            const to = seam.to ?? Math.max(geometry.slots - 1, 0);
+            const { from, to } = seamRange(seam);
             const limited = seam.from !== undefined || seam.to !== undefined;
             const start = limited
               ? (geometry.padding + from * geometry.pitch) / geometry.totalWidth
@@ -474,10 +562,7 @@ export function BarPreview({
         />
       ))}
       {/* The guide only shows on empty rows, so it never doubles a placed seam. */}
-      {onSeamsChange &&
-      dragIndex === null &&
-      hoverRow !== null &&
-      seamIndexAt(hoverRow, hoverSlot) < 0 ? (
+      {onSeamsChange && !drag && hoverRow !== null && !hoverSeam ? (
         <div
           className="bar-preview-seam-guide"
           aria-hidden="true"

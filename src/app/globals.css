@@ -382,6 +382,11 @@ body {
   cursor: grabbing;
 }
 
+/* Over the end of a seam, where dragging lengthens or shortens it. */
+.bar-preview[data-seam-tool="resize"] {
+  cursor: ew-resize;
+}
+
 /* Delete tool: a crosshair over the canvas, the pointer once a part is actually
    under the cursor and a click would remove something. */
 .bar-preview[data-delete-tool="true"] {
