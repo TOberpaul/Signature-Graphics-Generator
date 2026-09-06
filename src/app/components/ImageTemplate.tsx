@@ -101,7 +101,6 @@ export function ImageTemplate({
   const [threshold, setThreshold] = useState(0.5);
   const [cleanup, setCleanup] = useState(0);
   const [edgeTolerance, setEdgeTolerance] = useState(0);
-  const [solidStrokes, setSolidStrokes] = useState(true);
   const [mirrorOn, setMirrorOn] = useState(false);
   const [mirrorHalf, setMirrorHalf] = useState<MirrorMode>("left");
 
@@ -126,8 +125,11 @@ export function ImageTemplate({
         mirror,
         allowExtendedFormat,
         edgeTolerance,
-        // On swallows everything below a deliberate opening; off keeps every gap.
-        fuseGapsBelow: solidStrokes ? DP.intentionalVerticalGap : 0,
+        // One continuous stroke per column, its length given by the outline. Gaps
+        // below a deliberate opening are swallowed, so only real negative space
+        // like an arch or a passage survives - sampling every window and bit of
+        // masonry shatters the strokes into noise, which is never wanted.
+        fuseGapsBelow: DP.intentionalVerticalGap,
         manualSeams,
       },
     );
@@ -197,7 +199,6 @@ export function ImageTemplate({
     cleanup,
     allowExtendedFormat,
     edgeTolerance,
-    solidStrokes,
     manualSeams,
     removedParts,
     fileName,
@@ -220,25 +221,6 @@ export function ImageTemplate({
         disabled={disabled}
         onChange={setThreshold}
       />
-
-      <Setting
-        id="solid-help"
-        help="An: pro Spalte ein durchgezogener Strich, dessen Länge der Umriss bestimmt. Große Öffnungen wie Bögen oder Durchgänge bleiben als Lücke erhalten. Aus: jedes Detail der Vorlage wird abgetastet - Gitterwerk, Fenster, Mauerwerk - und zerlegt die Striche in viele kurze Segmente."
-        state={
-          solidStrokes
-            ? "Nur der Umriss zählt, große Öffnungen bleiben."
-            : "Jedes Detail der Vorlage wird zu einer Lücke."
-        }
-        disabled={disabled}
-      >
-        <DBCheckbox
-          label="Durchgängige Striche"
-          size="small"
-          checked={solidStrokes}
-          disabled={disabled}
-          onChange={(event) => setSolidStrokes(event.target.checked)}
-        />
-      </Setting>
 
       <RangeSetting
         id="cleanup"
