@@ -275,6 +275,18 @@ export function BarPreview({
 
     const existing = seamIndexAt(row, slotFromEvent(event));
     if (existing >= 0) {
+      // Alt (Option) duplicates instead of moving, the usual gesture in drawing
+      // tools. The copy keeps the range and is what gets dragged, which is the
+      // point: a limited seam is tedious to draw twice by hand.
+      if (event.altKey) {
+        const source = seams[existing];
+        // Offset by a row, so the copy is not an exact duplicate - identical
+        // seams are folded together - and is visible straight away.
+        const row = Math.min(source.row + 1, geometry.rows - 1);
+        onSeamsChange([...seams, { ...source, row }]);
+        setDragIndex(seams.length);
+        return;
+      }
       setDragIndex(existing);
       return;
     }

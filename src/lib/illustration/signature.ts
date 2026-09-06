@@ -528,11 +528,16 @@ export function constructStrokes(
   snapGaps(columns, rows, report);
   staggerLevelBands(columns, report);
 
-  // Cut them a second time, dead last, so the seam itself always survives:
-  // whatever the rules did in between - edge normalisation bridging it, gap
-  // snapping tightening it away - the deliberate cut is reopened. The early pass
-  // did the cleanup, this pass guarantees the gap.
+  // Cut them a second time, so the seam itself always survives: whatever the
+  // rules did in between - edge normalisation bridging it, gap snapping
+  // tightening it away - the deliberate cut is reopened.
   applySeams(columns, seams, report);
+
+  // That second cut can leave a run below the minimum length, and two seams close
+  // together always do: the piece between them is shorter than a legal stroke.
+  // Sweeping fragments once more is therefore the last step. Only fragments -
+  // snapping gaps again would be free to close the seam that was just reopened.
+  removeFragments(columns, rows, report);
 
   return { columns: columns.filter((column) => column.runs.length > 0), rows, report };
 }

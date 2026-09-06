@@ -429,6 +429,34 @@ describe("manual seams", () => {
     }
   });
 
+  it("leaves no run below the minimum length between two close seams", () => {
+    // Two seams 3 dp apart: whatever sits between them is shorter than a legal
+    // stroke, so it has to go rather than survive as a stub.
+    const seamed = constructStrokes(block(6, 40), {
+      fuseGapsBelow: DP.intentionalVerticalGap,
+      manualSeams: [{ row: 20 }, { row: 23 }],
+    });
+
+    for (const column of seamed.columns) {
+      for (const run of column.runs) {
+        expect(run.height).toBeGreaterThanOrEqual(DP.minStrokeLength);
+      }
+    }
+  });
+
+  it("keeps the seam open after sweeping fragments", () => {
+    // The fragment sweep runs after the final cut, so it must not be able to
+    // close the gap the cut just guaranteed.
+    const seamed = constructStrokes(block(6, 40), {
+      fuseGapsBelow: DP.intentionalVerticalGap,
+      manualSeams: [{ row: 20 }],
+    });
+
+    for (const column of seamed.columns) {
+      expect(column.runs.length).toBe(2);
+    }
+  });
+
   it("treats an open ended range as reaching the edge", () => {
     const seamed = constructStrokes(block(10, 40), {
       fuseGapsBelow: DP.intentionalVerticalGap,

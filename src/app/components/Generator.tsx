@@ -349,8 +349,8 @@ export function Generator() {
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
                   Ein Klick setzt eine Linie über die ganze Breite. Seitwärts
                   ziehen begrenzt sie auf einzelne Striche, etwa nur auf das
-                  Hauptgebäude. Eine bestehende Linie lässt sich verschieben,
-                  Doppelklick entfernt sie.
+                  Hauptgebäude. Eine bestehende Linie lässt sich verschieben, mit
+                  Option kopieren, per Doppelklick entfernen.
                 </DBInfotext>
               ) : null}
 
