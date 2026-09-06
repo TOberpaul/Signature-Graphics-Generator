@@ -77,10 +77,21 @@ export function Generator() {
 
   // The preview owns the whole interaction (place, drag, limit, remove) and
   // reports the resulting list, so there is no gesture logic duplicated here.
-  // Only one seam per row: two cuts on the same level would be the same edge.
+  //
+  // Several seams may share a row: on a symmetric facade the same level is cut on
+  // the left and on the right while the centre stays whole. Only fully identical
+  // seams are folded together, and the order is left as reported - the preview
+  // identifies a seam by its position in this list.
   const changeSeams = useCallback((next: Seam[]) => {
-    const byRow = new Map(next.map((seam) => [seam.row, seam]));
-    setSeams([...byRow.values()].sort((a, b) => a.row - b.row));
+    const seen = new Set<string>();
+    setSeams(
+      next.filter((seam) => {
+        const key = `${seam.row}:${seam.from ?? ""}:${seam.to ?? ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    );
   }, []);
 
   // Connected parts the user removed, stored as the points that were clicked.

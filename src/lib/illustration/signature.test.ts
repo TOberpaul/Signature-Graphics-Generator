@@ -412,6 +412,23 @@ describe("manual seams", () => {
     }
   });
 
+  it("cuts two seams on the same row and leaves the middle whole", () => {
+    // A symmetric facade: the same level is cut on the left and on the right,
+    // while the centre part runs through uninterrupted.
+    const seamed = constructStrokes(block(11, 40), {
+      fuseGapsBelow: DP.intentionalVerticalGap,
+      manualSeams: [
+        { row: 20, from: 0, to: 2 },
+        { row: 20, from: 8, to: 10 },
+      ],
+    });
+
+    for (const column of seamed.columns) {
+      const cut = column.x <= 2 || column.x >= 8;
+      expect(column.runs.length).toBe(cut ? 2 : 1);
+    }
+  });
+
   it("treats an open ended range as reaching the edge", () => {
     const seamed = constructStrokes(block(10, 40), {
       fuseGapsBelow: DP.intentionalVerticalGap,
