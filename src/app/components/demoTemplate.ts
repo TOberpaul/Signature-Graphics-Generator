@@ -1,3 +1,6 @@
+import type { MirrorMode } from "@/lib/illustration/shapeMask";
+import type { Seam } from "@/lib/illustration/signature";
+
 /**
  * The template behind "Demo laden".
  *
@@ -31,5 +34,33 @@ export const DEMO_TEMPLATE_SRC = `data:image/svg+xml;charset=utf-8,${encodeURICo
   DEMO_SVG,
 )}`;
 
-/** Shown as the graphic's name once the demo is loaded. */
-export const DEMO_TEMPLATE_NAME = "Museum";
+/**
+ * The state the demo opens with.
+ *
+ * Dialled in by hand on this exact template, so it is a worked example rather than
+ * the defaults: mirrored for a symmetric front, and three seams that give the
+ * gable, the capitals and the plinth their own bands - the kind of edge a soft
+ * shape does not offer on its own and that has to be placed.
+ *
+ * The rows belong to this template's format. They are meaningful only together
+ * with the threshold, which is why the settings and the seams live in one value.
+ */
+export const DEMO_TEMPLATE_PRESET = {
+  name: "Museum",
+  settings: {
+    threshold: 0.49,
+    detail: 0,
+    edgeTolerance: 0,
+    mirror: "left" as MirrorMode,
+  },
+  colour: "#090F1B",
+  seams: [{ row: 33 }, { row: 41 }, { row: 81 }] as Seam[],
+};
+
+/**
+ * Name the demo is filed under, standing in for a file name.
+ *
+ * Taken from the preset so the name exists once: it is part of the state a preset
+ * describes, like the settings and the seams.
+ */
+export const DEMO_TEMPLATE_NAME = DEMO_TEMPLATE_PRESET.name;

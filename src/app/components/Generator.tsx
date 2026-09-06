@@ -28,6 +28,8 @@ import { DP } from "@/lib/illustration/geometry";
 import type { ConversionResult } from "@/lib/illustration/result";
 import type { SegmentAnchor } from "@/lib/illustration/segments";
 import type { Seam } from "@/lib/illustration/signature";
+import { DEMO_TEMPLATE_PRESET } from "./demoTemplate";
+import type { TemplateSettings } from "./ImageTemplate";
 
 /**
  * The preview is always rendered at this pixel size per dp and scaled to fit
@@ -147,6 +149,13 @@ export function Generator() {
   // threshold tuned for one motif over to the next is never what is wanted.
   const [templateGeneration, setTemplateGeneration] = useState(0);
 
+  // Start values for the settings panel. Set for the demo, which opens as a worked
+  // example, and cleared for a picked file, which starts from the defaults. Read
+  // when the panel mounts, which is why it changes together with the generation.
+  const [initialSettings, setInitialSettings] = useState<TemplateSettings | undefined>(
+    undefined,
+  );
+
   // Everything the user built on top of the old template goes when a new one
   // arrives: the tools, their results, and the name derived from the file. Done
   // here rather than in the hook so the hook stays about files only.
@@ -163,13 +172,21 @@ export function Generator() {
   const loadTemplate = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       resetForNewTemplate();
+      setInitialSettings(undefined);
       file.onInputChange(event);
     },
     [file, resetForNewTemplate],
   );
 
+  // The demo opens as a finished example rather than at the defaults, so it shows
+  // what the tool is for straight away - including the seams, which are the part
+  // nobody would find by guessing. Applied after the reset, so it wins.
   const loadDemo = useCallback(() => {
     resetForNewTemplate();
+    setInitialSettings(DEMO_TEMPLATE_PRESET.settings);
+    setSeams(DEMO_TEMPLATE_PRESET.seams);
+    setColour(DEMO_TEMPLATE_PRESET.colour);
+    setCustomName(DEMO_TEMPLATE_PRESET.name);
     void file.loadDemo();
   }, [file, resetForNewTemplate]);
 
@@ -204,6 +221,7 @@ export function Generator() {
     if (!result) return;
 
     const preset = {
+      name: displayName,
       settings: result.settings,
       colour,
       seams,
@@ -219,7 +237,7 @@ export function Generator() {
       },
       () => setPresetCopied(false),
     );
-  }, [result, colour, seams, removedParts]);
+  }, [result, colour, seams, removedParts, displayName]);
 
   const runExport = useCallback(async () => {
     if (!result) return;
@@ -351,6 +369,7 @@ export function Generator() {
               allowExtendedFormat={allowExtendedFormat}
               manualSeams={seams}
               removedParts={removedParts}
+              initial={initialSettings}
               onResult={handleResult}
               onError={setError}
             />
