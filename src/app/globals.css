@@ -481,6 +481,16 @@ body {
    `place-content` is the one that matters here: `place-items` only positions an
    item inside its own row, while `place-content` positions the row itself inside
    the container. With a single auto sized row, only the latter centres. */
+/* The two entry buttons side by side. DBStack fills its container and scrolls by
+   default, which here would stretch a row of two buttons over the whole empty
+   state - so it is sized by its content instead and centred. */
+.empty-actions {
+  inline-size: auto;
+  block-size: auto;
+  overflow: visible;
+  justify-content: center;
+}
+
 .preview-empty {
   display: grid;
   place-content: center;

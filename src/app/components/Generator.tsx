@@ -137,19 +137,28 @@ export function Generator() {
   // Everything the user built on top of the old template goes when a new one
   // arrives: the tools, their results, and the name derived from the file. Done
   // here rather than in the hook so the hook stays about files only.
+  const resetForNewTemplate = useCallback(() => {
+    setSeams([]);
+    setSeamTool(false);
+    setRemovedParts([]);
+    setDeleteTool(false);
+    setCustomName(null);
+    setError(null);
+    setTemplateGeneration((generation) => generation + 1);
+  }, []);
+
   const loadTemplate = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      setSeams([]);
-      setSeamTool(false);
-      setRemovedParts([]);
-      setDeleteTool(false);
-      setCustomName(null);
-      setError(null);
-      setTemplateGeneration((generation) => generation + 1);
+      resetForNewTemplate();
       file.onInputChange(event);
     },
-    [file],
+    [file, resetForNewTemplate],
   );
+
+  const loadDemo = useCallback(() => {
+    resetForNewTemplate();
+    void file.loadDemo();
+  }, [file, resetForNewTemplate]);
 
   // The name shown and exported: the user's own if set, otherwise the one the
   // pipeline derived from the file.
@@ -549,9 +558,21 @@ export function Generator() {
           <div className="preview-empty">
             <DBStack gap="large" alignment="center">
               <DBIcon className="preview-empty-icon" icon="image" weight="64" />
-              <DBButton type="button" variant="brand" icon="upload" onClick={file.open}>
-                Bild auswählen
-              </DBButton>
+              {/* Two ways in, side by side: bring your own template, or see what the
+                  tool does without having to find a suitable image first. */}
+              <DBStack className="empty-actions" direction="row" gap="small">
+                <DBButton
+                  type="button"
+                  variant="brand"
+                  icon="upload"
+                  onClick={file.open}
+                >
+                  Bild auswählen
+                </DBButton>
+                <DBButton type="button" variant="filled" icon="image" onClick={loadDemo}>
+                  Demo laden
+                </DBButton>
+              </DBStack>
               <DBInfotext semantic="adaptive" showIcon={false}>
                 Am besten eine schwarze Silhouette auf weißem Hintergrund.
               </DBInfotext>
