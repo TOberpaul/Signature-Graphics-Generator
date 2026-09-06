@@ -1,5 +1,6 @@
 import type { BarIllustration } from "./types";
 import type { OccupancyGrid } from "./occupancy";
+import type { RemovedSegment } from "./segments";
 
 /**
  * Places the binary intermediate mask back over the finished graphic, aligned
@@ -62,6 +63,13 @@ export type ConversionResult = {
   warnings: string[];
   /** Source template laid over the graphic, aligned to the fitted motif area. */
   overlay?: OverlayGeometry;
+  /**
+   * Segments taken out by hand, in grid units.
+   *
+   * Carried along because the graphic no longer contains them: the delete tool
+   * shows them in place so a removal stays visible and can be taken back.
+   */
+  removed?: RemovedSegment[];
   /** Settings and construction report, shown in the debug view. */
   raw?: unknown;
 };

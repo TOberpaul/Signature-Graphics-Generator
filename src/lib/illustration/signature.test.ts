@@ -8,6 +8,7 @@ import {
   placeInDrawable,
   planSignatureCanvas,
   planSignatureCanvasForExtent,
+  snapSeamHeight,
   strokesToIllustration,
 } from "./signature";
 import { maskToSignature } from "./shapeMask";
@@ -456,6 +457,29 @@ describe("manual seams", () => {
     for (const column of seamed.columns) {
       expect(column.runs.length).toBe(2);
     }
+  });
+
+  it("cuts a taller seam as a deliberate opening", () => {
+    const seamed = constructStrokes(block(6, 40), {
+      fuseGapsBelow: DP.intentionalVerticalGap,
+      manualSeams: [{ row: 20, height: DP.intentionalVerticalGap }],
+    });
+
+    for (const column of seamed.columns) {
+      const runs = [...column.runs].sort((a, b) => a.y - b.y);
+      expect(runs.length).toBe(2);
+      // The gap is the full height of the seam, not a single row.
+      expect(runs[1].y - (runs[0].y + runs[0].height)).toBe(DP.intentionalVerticalGap);
+    }
+  });
+
+  it("snaps a seam height to a legal vertical gap", () => {
+    // 2 and 3 dp are the sizes snapGaps exists to remove, so they are not offered.
+    expect(snapSeamHeight(1)).toBe(DP.tightVerticalGap);
+    expect(snapSeamHeight(2)).toBe(DP.tightVerticalGap);
+    expect(snapSeamHeight(3)).toBe(DP.intentionalVerticalGap);
+    expect(snapSeamHeight(4)).toBe(DP.intentionalVerticalGap);
+    expect(snapSeamHeight(9)).toBe(DP.intentionalVerticalGap);
   });
 
   it("treats an open ended range as reaching the edge", () => {

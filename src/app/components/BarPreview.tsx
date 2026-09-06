@@ -16,8 +16,9 @@ import {
   segmentNear,
   SEGMENT_PICK_TOLERANCE_DP,
 } from "@/lib/illustration/segments";
-import type { SegmentAnchor } from "@/lib/illustration/segments";
+import type { RemovedSegment, SegmentAnchor } from "@/lib/illustration/segments";
 import type { Seam } from "@/lib/illustration/signature";
+import { snapSeamHeight } from "@/lib/illustration/signature";
 import { pitchUnitsOf, slotCount } from "@/lib/illustration/geometry";
 
 type Props = {
@@ -51,6 +52,10 @@ type Props = {
    * Mutually exclusive with the seam tool.
    */
   onDeletePart?: (anchor: SegmentAnchor) => void;
+  /** Segments removed by hand, shown in place while the delete tool is open. */
+  removed?: RemovedSegment[];
+  /** Called with the anchor index behind a removal, to take it back. */
+  onRestorePart?: (anchorIndex: number) => void;
 };
 
 /** How close, in dp, the pointer has to be to grab an existing seam. */
@@ -77,6 +82,8 @@ export function BarPreview({
   seams = [],
   onSeamsChange,
   onDeletePart,
+  removed = [],
+  onRestorePart,
 }: Props) {
   const showSource = overlay?.src && overlayOpacity > 0;
   const showSampled = sampledOpacity > 0;
@@ -102,6 +109,8 @@ export function BarPreview({
     | { index: number; mode: "move"; grabSlot: number }
     | { index: number; mode: "from" }
     | { index: number; mode: "to" }
+    /** Dragging the bottom edge, which makes the cut taller. */
+    | { index: number; mode: "height" }
     /**
      * Alt-dragging a copy. The original is left untouched and nothing is added to
      * the list until the pointer is released - until then `preview` is drawn as a
@@ -233,11 +242,39 @@ export function BarPreview({
       .map(({ x, y, width, height }) => ({ x, y, width, height }));
   };
 
-  /** Erases at a point, if there is anything there. */
-  const eraseAt = (event: React.MouseEvent<HTMLDivElement>) => {
+  /** The removal marker under a point, if any. */
+  const removalAt = (point: SegmentAnchor): RemovedSegment | undefined =>
+    removed.find(
+      (box) =>
+        point.x >= box.x &&
+        point.x <= box.x + box.width &&
+        point.y >= box.y &&
+        point.y <= box.y + box.height,
+    );
+
+  /**
+   * Erases at a point, or puts back what was removed there.
+   *
+   * Restoring is only offered on a deliberate press, not while wiping: dragging
+   * across a removal is meant to keep erasing, not to undo on the way past.
+   */
+  const eraseAt = (event: React.MouseEvent<HTMLDivElement>, allowRestore: boolean) => {
     if (!onDeletePart) return;
     const point = pointFromEvent(event);
     if (!point) return;
+
+    // Checked before erasing, because the gap a removal left is empty and the
+    // nearest stroke would be taken instead - deleting something else on a click
+    // that was meant to bring one back.
+    if (allowRestore) {
+      const undo = removalAt(point);
+      if (undo) {
+        onRestorePart?.(undo.anchorIndex);
+        setHoverPart(null);
+        return;
+      }
+    }
+
     const whole = event.shiftKey;
     if (!targetAt(point, whole)) return;
     onDeletePart(whole ? { ...point, whole: true } : point);
@@ -248,16 +285,21 @@ export function BarPreview({
   // be taken out in one gesture instead of one click each.
   const handleEraseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     setErasing(true);
-    eraseAt(event);
+    eraseAt(event, true);
   };
 
   const handleEraseMove = (event: React.MouseEvent<HTMLDivElement>) => {
     if (erasing) {
-      eraseAt(event);
+      eraseAt(event, false);
       return;
     }
+
     const point = pointFromEvent(event);
-    setHoverPart(point ? targetAt(point, event.shiftKey) : null);
+    // Over a removal the highlight would suggest something is about to be deleted,
+    // when a click puts it back instead. The red marker already shows the target.
+    setHoverPart(
+      point && !removalAt(point) ? targetAt(point, event.shiftKey) : null,
+    );
   };
 
   const lastSlot = Math.max(geometry.slots - 1, 0);
@@ -267,6 +309,9 @@ export function BarPreview({
     from: seam.from ?? 0,
     to: seam.to ?? lastSlot,
   });
+
+  /** Height of the cut in rows. */
+  const seamHeight = (seam: Seam): number => Math.max(1, Math.round(seam.height ?? 1));
 
   /**
    * Builds a seam from a slot range, dropping the range when it spans everything.
@@ -287,6 +332,11 @@ export function BarPreview({
     return slot >= from && slot <= to;
   };
 
+  /** Is the row within grabbing distance of the seam, top or bottom? */
+  const seamNearRow = (seam: Seam, row: number): boolean =>
+    row >= seam.row - SEAM_GRAB_DP &&
+    row <= seam.row + seamHeight(seam) - 1 + SEAM_GRAB_DP;
+
   /**
    * Index of the seam under the pointer, or -1.
    *
@@ -296,24 +346,35 @@ export function BarPreview({
   const seamIndexAt = (row: number, slot: number): number => {
     const covering = seams
       .map((seam, index) => ({ seam, index }))
-      .filter(({ seam }) => Math.abs(seam.row - row) <= SEAM_GRAB_DP)
+      .filter(({ seam }) => seamNearRow(seam, row))
       .find(({ seam }) => seamCovers(seam, slot));
 
     return covering ? covering.index : -1;
   };
 
   /**
-   * Which part of a seam the pointer is on: an end, or the body.
+   * Which part of a seam the pointer is on.
    *
-   * The ends are the handles that lengthen and shorten it. A seam only offers them
-   * once it is long enough to still have a middle to grab, otherwise it could no
+   * `from` / `to` are the side handles that lengthen and shorten it, `height` is
+   * the bottom edge that makes the cut taller. A seam only offers the side handles
+   * once it is wide enough to still have a middle to grab, otherwise it could no
    * longer be moved at all.
    */
-  const seamGrip = (seam: Seam, slot: number): "from" | "to" | "move" => {
+  const seamGrip = (
+    seam: Seam,
+    slot: number,
+    row: number,
+  ): "from" | "to" | "height" | "move" => {
+    // The bottom edge wins over the sides: it is the thinner target of the two,
+    // and being one row tall it needs the whole width to stay reachable.
+    const bottom = seam.row + seamHeight(seam) - 1;
+    if (row > bottom) return "height";
+
     const { from, to } = seamRange(seam);
-    if (to - from < 2) return "move";
-    if (slot <= from) return "from";
-    if (slot >= to) return "to";
+    if (to - from >= 2) {
+      if (slot <= from) return "from";
+      if (slot >= to) return "to";
+    }
     return "move";
   };
 
@@ -335,7 +396,7 @@ export function BarPreview({
         return;
       }
 
-      const grip = seamGrip(seams[existing], slot);
+      const grip = seamGrip(seams[existing], slot, row);
       setDrag(
         grip === "move"
           ? { index: existing, mode: "move", grabSlot: slot }
@@ -400,6 +461,15 @@ export function BarPreview({
             )
           : { row },
       );
+      return;
+    }
+
+    if (drag.mode === "height") {
+      // Snapped to the legal gaps, so dragging cannot produce a 2 to 3 dp cut -
+      // the sizes the construction rules would treat as a mistake anyway.
+      const height = snapSeamHeight(row - dragged.row + 1);
+      if (height === seamHeight(dragged)) return;
+      replace(height === 1 ? { ...dragged, height: undefined } : { ...dragged, height });
       return;
     }
 
@@ -470,7 +540,7 @@ export function BarPreview({
 
     return {
       insetBlockStart: `${((geometry.padding + seam.row) / geometry.totalHeight) * 100}%`,
-      blockSize: `${(1 / geometry.totalHeight) * 100}%`,
+      blockSize: `${(seamHeight(seam) / geometry.totalHeight) * 100}%`,
       insetInlineStart: `${start * 100}%`,
       inlineSize: `${width * 100}%`,
     };
@@ -480,6 +550,12 @@ export function BarPreview({
   const hoverSeam =
     onSeamsChange && hoverRow !== null
       ? seams[seamIndexAt(hoverRow, hoverSlot)]
+      : undefined;
+
+  /** Which handle of that seam the cursor is over. */
+  const hoverGrip =
+    hoverSeam && hoverRow !== null
+      ? seamGrip(hoverSeam, hoverSlot, hoverRow)
       : undefined;
 
   // Double click removes: a deliberate gesture, so a single click can be used for
@@ -508,13 +584,17 @@ export function BarPreview({
           ? drag
             ? drag.mode === "from" || drag.mode === "to"
               ? "resize"
-              : "dragging"
-            : hoverSeam
-              ? // The ends read as resizable, so it is discoverable that a seam can
-                // be lengthened rather than only moved.
-                seamGrip(hoverSeam, hoverSlot) === "move"
+              : drag.mode === "height"
+                ? "resize-height"
+                : "dragging"
+            : hoverSeam && hoverRow !== null
+              ? // The handles read as resizable, so it is discoverable that a seam
+                // can be reshaped rather than only moved.
+                hoverGrip === "move"
                 ? "grab"
-                : "resize"
+                : hoverGrip === "height"
+                  ? "resize-height"
+                  : "resize"
               : "true"
           : undefined
       }
@@ -599,6 +679,23 @@ export function BarPreview({
           style={seamStyle(drag.preview)}
         />
       ) : null}
+      {/* What was taken out, shown where it used to be. Otherwise a removal is only
+          visible as absence, and there is nothing left to click to undo it. */}
+      {onDeletePart
+        ? removed.map((box, index) => (
+            <div
+              key={index}
+              className="bar-preview-removed"
+              aria-hidden="true"
+              style={{
+                insetInlineStart: `${(box.x / geometry.totalWidth) * 100}%`,
+                insetBlockStart: `${(box.y / geometry.totalHeight) * 100}%`,
+                inlineSize: `${(box.width / geometry.totalWidth) * 100}%`,
+                blockSize: `${(box.height / geometry.totalHeight) * 100}%`,
+              }}
+            />
+          ))
+        : null}
       {/* What a click would remove, drawn stroke by stroke over the graphic so
           the extent of the connected part is unambiguous before committing. */}
       {hoverPart?.map((box, index) => (

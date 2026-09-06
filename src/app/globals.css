@@ -387,6 +387,11 @@ body {
   cursor: ew-resize;
 }
 
+/* Over the bottom edge of a seam, where dragging makes the cut taller. */
+.bar-preview[data-seam-tool="resize-height"] {
+  cursor: ns-resize;
+}
+
 /* Delete tool: a crosshair over the canvas, the pointer once a part is actually
    under the cursor and a click would remove something. */
 .bar-preview[data-delete-tool="true"] {
@@ -399,6 +404,17 @@ body {
 
 .bar-preview[data-delete-tool] {
   user-select: none;
+}
+
+/* A stroke that was removed by hand, drawn where it used to be. Red, so it reads
+   as taken out rather than as part of the graphic, and semi transparent so it
+   cannot be mistaken for one. Clicking it puts the stroke back. */
+.bar-preview-removed {
+  position: absolute;
+  z-index: 4;
+  background: var(--db-critical-origin-default);
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* What a click would remove: one box per affected stroke, above the graphic and

@@ -120,8 +120,8 @@ describe("removeSegmentsAt", () => {
 
     // The caption stroke of slot 0 is gone, the one of slot 1 stays: the point is
     // precision, not taking out everything that happens to be connected.
-    expect(pruned.bars[0].segments).toEqual([{ y: 0, height: 40 }]);
-    expect(pruned.bars[1].segments).toEqual([
+    expect(pruned.illustration.bars[0].segments).toEqual([{ y: 0, height: 40 }]);
+    expect(pruned.illustration.bars[1].segments).toEqual([
       { y: 0, height: 40 },
       { y: 60, height: 6 },
     ]);
@@ -134,9 +134,9 @@ describe("removeSegmentsAt", () => {
       SEGMENT_PICK_TOLERANCE_DP,
     );
 
-    expect(pruned.bars).toHaveLength(2);
-    expect(pruned.bars.every((bar) => bar.segments.length === 1)).toBe(true);
-    expect(pruned.bars[0].segments[0]).toEqual({ y: 0, height: 40 });
+    expect(pruned.illustration.bars).toHaveLength(2);
+    expect(pruned.illustration.bars.every((bar) => bar.segments.length === 1)).toBe(true);
+    expect(pruned.illustration.bars[0].segments[0]).toEqual({ y: 0, height: 40 });
   });
 
   it("drops bars that end up without segments", () => {
@@ -147,8 +147,8 @@ describe("removeSegmentsAt", () => {
 
     const pruned = removeSegmentsAt(single, [{ x: 1, y: 5 }], SEGMENT_PICK_TOLERANCE_DP);
 
-    expect(pruned.bars).toHaveLength(1);
-    expect(pruned.bars[0].x).toBe(5);
+    expect(pruned.illustration.bars).toHaveLength(1);
+    expect(pruned.illustration.bars[0].x).toBe(5);
   });
 
   it("leaves the graphic untouched when the anchor hits nothing", () => {
@@ -157,7 +157,40 @@ describe("removeSegmentsAt", () => {
       [{ x: 1, y: 52 }],
       SEGMENT_PICK_TOLERANCE_DP,
     );
-    expect(pruned).toBe(illustration);
+    expect(pruned.illustration).toBe(illustration);
+    expect(pruned.removed).toEqual([]);
+  });
+
+  it("reports what it removed, with the anchor responsible", () => {
+    // The graphic no longer contains these, so their geometry has to come out of
+    // the removal - that is what lets the preview show them and offer them back.
+    const pruned = removeSegmentsAt(
+      illustration,
+      [
+        { x: 1, y: 62 },
+        { x: 5, y: 62 },
+      ],
+      SEGMENT_PICK_TOLERANCE_DP,
+    );
+
+    expect(pruned.removed).toHaveLength(2);
+    expect(pruned.removed.map((box) => box.anchorIndex).sort()).toEqual([0, 1]);
+    // Both captions sit at y 60 and are 6 units tall.
+    for (const box of pruned.removed) {
+      expect(box.y).toBe(60);
+      expect(box.height).toBe(6);
+    }
+  });
+
+  it("credits a whole part to the single anchor that removed it", () => {
+    const pruned = removeSegmentsAt(
+      illustration,
+      [{ x: 1, y: 62, whole: true }],
+      SEGMENT_PICK_TOLERANCE_DP,
+    );
+
+    expect(pruned.removed).toHaveLength(2);
+    expect(pruned.removed.every((box) => box.anchorIndex === 0)).toBe(true);
   });
 
   it("wipes several segments from one drag", () => {
@@ -171,7 +204,7 @@ describe("removeSegmentsAt", () => {
       SEGMENT_PICK_TOLERANCE_DP,
     );
 
-    expect(pruned.bars.every((bar) => bar.segments.length === 1)).toBe(true);
+    expect(pruned.illustration.bars.every((bar) => bar.segments.length === 1)).toBe(true);
   });
 });
 

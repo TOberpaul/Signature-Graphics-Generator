@@ -105,6 +105,12 @@ export function Generator() {
     setRemovedParts((current) => [...current, anchor]);
   }, []);
 
+  // Clicking a removal drops the anchor behind it, so the strokes it took out come
+  // back on the next pass.
+  const restorePart = useCallback((anchorIndex: number) => {
+    setRemovedParts((current) => current.filter((_, index) => index !== anchorIndex));
+  }, []);
+
   const [result, setResult] = useState<ConversionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -349,8 +355,9 @@ export function Generator() {
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
                   Ein Klick setzt eine Linie über die ganze Breite, seitwärts
                   ziehen begrenzt sie auf einzelne Striche. An den Enden ziehen
-                  verlängert und verkürzt, in der Mitte ziehen verschiebt in beide
-                  Richtungen. Mit Option kopieren, Doppelklick entfernt.
+                  verlängert, an der Unterkante ziehen macht den Schnitt 4 dp
+                  hoch, in der Mitte ziehen verschiebt. Mit Option kopieren,
+                  Doppelklick entfernt.
                 </DBInfotext>
               ) : null}
 
@@ -389,7 +396,8 @@ export function Generator() {
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
                   Ein Klick entfernt den markierten Abschnitt, Ziehen wischt
                   mehrere weg. Mit Shift wird der ganze zusammenhängende Bereich
-                  markiert.
+                  markiert. Gelöschtes bleibt rot sichtbar, ein Klick darauf holt
+                  es zurück.
                 </DBInfotext>
               ) : null}
             </DBStack>
@@ -432,6 +440,8 @@ export function Generator() {
                   seams={seams}
                   onSeamsChange={seamTool ? changeSeams : undefined}
                   onDeletePart={deleteTool ? removePart : undefined}
+                  removed={result.removed}
+                  onRestorePart={restorePart}
                 />
 
                 {/* The second canvas: the same preview with the strokes hidden

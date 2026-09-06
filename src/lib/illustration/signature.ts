@@ -471,7 +471,32 @@ export type Seam = {
   from?: number;
   /** Last stroke slot to cut, inclusive. Omitted means to the right edge. */
   to?: number;
+  /**
+   * Height of the cut in dp. Omitted means a single row.
+   *
+   * Only the two legal vertical gaps are worth setting: 1 dp reads as a plain
+   * separation, 4 dp as a deliberate opening. The sizes in between are exactly
+   * what `snapGaps` exists to remove, so offering them would mean offering a
+   * broken result - see {@link SEAM_HEIGHTS}.
+   */
+  height?: number;
 };
+
+/**
+ * The heights a seam may have, in dp.
+ *
+ * The guideline allows a vertical gap of 1 dp as a normal separation and 4 dp or
+ * more as a deliberate negative space, and nothing in between: 2 to 3 dp read as
+ * a mistake. A seam is a gap, so it follows the same two values.
+ */
+export const SEAM_HEIGHTS = [DP.tightVerticalGap, DP.intentionalVerticalGap] as const;
+
+/** Nearest legal seam height. */
+export function snapSeamHeight(height: number): number {
+  return SEAM_HEIGHTS.reduce((best, legal) =>
+    Math.abs(legal - height) < Math.abs(best - height) ? legal : best,
+  );
+}
 
 export type ConstructedStrokes = {
   columns: Column[];
@@ -552,11 +577,17 @@ function applySeams(columns: Column[], seams: Seam[], report: ConstructionReport
   for (const seam of seams) {
     const from = seam.from ?? Number.NEGATIVE_INFINITY;
     const to = seam.to ?? Number.POSITIVE_INFINITY;
+    const height = Math.max(1, Math.round(seam.height ?? 1));
 
     let cut = false;
     for (const column of columns) {
       if (column.x < from || column.x > to) continue;
-      if (splitRunsAtRow(column, seam.row)) cut = true;
+      // A taller seam is the same cut repeated on each of its rows: every run
+      // crossing it is split, and what falls inside is left with zero height and
+      // dropped by `splitRunsAtRow`.
+      for (let offset = 0; offset < height; offset += 1) {
+        if (splitRunsAtRow(column, seam.row + offset)) cut = true;
+      }
     }
     if (cut) report.gapsSnapped += 1;
   }

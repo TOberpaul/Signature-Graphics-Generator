@@ -231,6 +231,27 @@ export function componentAt(
 }
 
 /**
+ * A segment that was taken out, in grid units, plus the anchor responsible.
+ *
+ * Kept so the preview can show what is missing and let a click put it back. Once
+ * removed there is nothing left in the illustration to point at, so the geometry
+ * has to be carried out of the removal rather than looked up afterwards.
+ */
+export type RemovedSegment = {
+  /** Index into the anchor list that removed this segment. */
+  anchorIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type RemovalResult = {
+  illustration: BarIllustration;
+  removed: RemovedSegment[];
+};
+
+/**
  * Removes whatever the anchors point at: one segment each, or the whole
  * connected part when the anchor says so.
  *
@@ -243,8 +264,8 @@ export function removeSegmentsAt(
   anchors: SegmentAnchor[],
   tolerance: number,
   paddingOverride?: number,
-): BarIllustration {
-  if (anchors.length === 0) return illustration;
+): RemovalResult {
+  if (anchors.length === 0) return { illustration, removed: [] };
 
   const boxes = segmentBoxes(illustration, paddingOverride);
   // Only needed for the "whole part" anchors, so the grouping is not computed
@@ -253,22 +274,41 @@ export function removeSegmentsAt(
     ? findComponents(illustration)
     : null;
 
-  const doomed = new Set<string>();
-  for (const anchor of anchors) {
+  /** Which anchor removed a segment, so a click on it can undo that one anchor. */
+  const doomed = new Map<string, number>();
+
+  anchors.forEach((anchor, anchorIndex) => {
     const hit = segmentNear(boxes, anchor.x, anchor.y, tolerance);
-    if (!hit) continue;
+    if (!hit) return;
+
+    const claim = (ref: SegmentRef) => {
+      const key = refKey(ref);
+      if (!doomed.has(key)) doomed.set(key, anchorIndex);
+    };
 
     if (!anchor.whole || !grouping) {
-      doomed.add(refKey(hit));
-      continue;
+      claim(hit);
+      return;
     }
 
     const id = grouping.idOf.get(refKey(hit));
-    if (id === undefined) continue;
-    for (const ref of grouping.members[id]) doomed.add(refKey(ref));
-  }
+    if (id === undefined) return;
+    for (const ref of grouping.members[id]) claim(ref);
+  });
 
-  if (doomed.size === 0) return illustration;
+  if (doomed.size === 0) return { illustration, removed: [] };
+
+  // The boxes of what went, so the preview can show it and offer it back. Taken
+  // from the geometry before the removal, which is the only place it still exists.
+  const removed: RemovedSegment[] = boxes
+    .filter((box) => doomed.has(refKey(box.ref)))
+    .map((box) => ({
+      anchorIndex: doomed.get(refKey(box.ref))!,
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+    }));
 
   const bars = illustration.bars
     .map((bar, barIndex) => ({
@@ -279,5 +319,5 @@ export function removeSegmentsAt(
     }))
     .filter((bar) => bar.segments.length > 0);
 
-  return { ...illustration, bars };
+  return { illustration: { ...illustration, bars }, removed };
 }

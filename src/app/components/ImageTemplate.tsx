@@ -150,12 +150,12 @@ export function ImageTemplate({
       SEGMENT_PICK_TOLERANCE_DP,
     );
 
-    if (pruned.bars.length === 0) {
+    if (pruned.illustration.bars.length === 0) {
       onError("Es sind keine Striche übrig. Letzte Löschung zurücknehmen.");
       return;
     }
 
-    const validation = validateIllustration(pruned);
+    const validation = validateIllustration(pruned.illustration);
     if (!validation.ok) {
       onError(`Die konstruierte Grafik ist ungültig: ${validation.errors[0]}`);
       return;
@@ -183,6 +183,7 @@ export function ImageTemplate({
       durationMs: 0,
       warnings,
       overlay,
+      removed: pruned.removed,
       raw: {
         source: "image-template",
         threshold,
