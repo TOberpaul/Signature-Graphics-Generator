@@ -51,7 +51,12 @@ jobs:
           # Switches on the base path for the project sub directory.
           GITHUB_PAGES: "true"
 
+      # `enablement` switches Pages on through the API if it is still off, so the
+      # first deployment does not depend on someone having clicked through the
+      # repository settings first. Without it this step is where the run fails.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
