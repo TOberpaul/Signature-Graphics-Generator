@@ -1,0 +1,68 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Lets the page be rebuilt from the Actions tab without a new commit.
+  workflow_dispatch:
+
+# Least privilege: read the repository, and only what Pages deployment needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. Queued rather than cancelled, so a run that is
+# already publishing is never interrupted half way.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The postinstall script of @db-ux/db-theme decrypts the licensed DB brand
+      # assets with these values. Without them the install still succeeds and the
+      # components fall back to the white label theme, so a missing secret shows
+      # up as a wrong looking page rather than a failed build.
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ASSET_INIT_VECTOR: ${{ secrets.ASSET_INIT_VECTOR }}
+          ASSET_PASSWORD: ${{ secrets.ASSET_PASSWORD }}
+
+      - name: Type check
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build static site
+        run: npm run build
+        env:
+          # Switches on the base path for the project sub directory.
+          GITHUB_PAGES: "true"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

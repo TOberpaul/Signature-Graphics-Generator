@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+
+# Installed Kiro powers: local tooling configuration, not part of the project.
+# Also carries internal design system guidance that does not belong in a public
+# repository.
+.kiro/powers/

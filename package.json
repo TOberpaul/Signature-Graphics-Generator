@@ -1,0 +1,40 @@
+{
+  "name": "bar-illustration-generator",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "//browserslist": "DB UX Design System v3 uses modern CSS such as light-dark(). Next.js processes CSS with LightningCSS, which downlevels light-dark() into a broken var(--lightningcss-light, ...) construct when the targets are old. Declaring targets that support light-dark() natively keeps the color tokens intact.",
+  "browserslist": [
+    "chrome >= 123",
+    "edge >= 123",
+    "firefox >= 120",
+    "safari >= 17.5"
+  ],
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1",
+    "lint": "tsc --noEmit",
+    "test": "vitest --run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@db-ux/core-components": "5.2.1-shell2-b3d6ca4",
+    "@db-ux/core-foundations": "5.2.1-shell2-b3d6ca4",
+    "@db-ux/db-theme": "^6.2.0",
+    "@db-ux/react-core-components": "5.2.1-shell2-b3d6ca4",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.2",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "typescript": "5.8.3",
+    "vitest": "4.1.11"
+  }
+}

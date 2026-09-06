@@ -1,0 +1,397 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  canvasSizeUnits,
+  effectivePadding,
+  renderIllustration,
+  renderSampledOverlay,
+} from "@/lib/illustration/renderer";
+import type { BarIllustration } from "@/lib/illustration/types";
+import type { OverlayGeometry } from "@/lib/illustration/result";
+import {
+  findComponents,
+  refKey,
+  segmentBoxes,
+  segmentNear,
+  SEGMENT_PICK_TOLERANCE_DP,
+} from "@/lib/illustration/segments";
+import type { SegmentAnchor } from "@/lib/illustration/segments";
+
+type Props = {
+  illustration: BarIllustration;
+  unitSize: number;
+  /** Overrides the safe area from the illustration. Normally left untouched. */
+  paddingUnits?: number;
+  /** Stroke colour, so the preview matches the export. */
+  foreground?: string;
+  /** Source photo, aligned with the fitted motif. */
+  overlay?: OverlayGeometry | null;
+  /** 0 hides the source photo, 1 shows it fully opaque. */
+  overlayOpacity?: number;
+  /** 0 hides the strokes, 1 shows them fully opaque. */
+  strokesOpacity?: number;
+  /** 0 hides the dp grid overlay, 1 shows it fully opaque. */
+  sampledOpacity?: number;
+  /** Rows of the drawable grid that carry a hand placed seam. */
+  seams?: number[];
+  /**
+   * Set while the seam tool is active. The canvas then becomes interactive:
+   * pressing empty space adds a seam, pressing an existing one picks it up, and
+   * dragging moves it. Double click removes. Reports the full new list.
+   */
+  onSeamsChange?: (seams: number[]) => void;
+  /**
+   * Set while the delete tool is active. Hovering highlights the connected part
+   * under the pointer, clicking reports the point so the parent can remove it.
+   * Mutually exclusive with the seam tool.
+   */
+  onDeletePart?: (anchor: SegmentAnchor) => void;
+};
+
+/** How close, in dp, the pointer has to be to grab an existing seam. */
+const SEAM_GRAB_DP = 2;
+
+/**
+ * Renders the illustration with the same deterministic renderer that produces
+ * the exported file, so preview and export can never drift apart.
+ *
+ * When an overlay is given, the source template is drawn on top of the graphic
+ * at the same box so both can be compared directly. The graphic keeps its own
+ * intrinsic size (from the SVG), and the overlay is stretched to that same box,
+ * matching how the template was sampled into the canvas.
+ */
+export function BarPreview({
+  illustration,
+  unitSize,
+  paddingUnits,
+  foreground,
+  overlay,
+  overlayOpacity = 0,
+  strokesOpacity = 1,
+  sampledOpacity = 0,
+  seams = [],
+  onSeamsChange,
+  onDeletePart,
+}: Props) {
+  const showSource = overlay?.src && overlayOpacity > 0;
+  const showSampled = sampledOpacity > 0;
+  /** Row under the cursor while the seam tool is open, for the guide line. */
+  const [hoverRow, setHoverRow] = useState<number | null>(null);
+  /** The seam currently being dragged, tracked by its row value. */
+  const [dragRow, setDragRow] = useState<number | null>(null);
+  /** Boxes of what a click would remove, while the delete tool is open. */
+  const [hoverPart, setHoverPart] = useState<
+    { x: number; y: number; width: number; height: number }[] | null
+  >(null);
+  /** Set while the pointer is held down, so dragging keeps erasing. */
+  const [erasing, setErasing] = useState(false);
+
+  // The graphic itself is always transparent; the white ground lives on the
+  // wrapper. That way the template (drawn beneath the strokes) shows through the
+  // gaps at any opacity, while the canvas never loses its white background.
+  const result = useMemo(
+    () =>
+      renderIllustration(illustration, {
+        unitSize,
+        paddingUnits,
+        foreground,
+        background: "none",
+      }),
+    [illustration, unitSize, paddingUnits, foreground],
+  );
+
+  // The raster shares the graphic's canvas exactly, so it can be laid over as a
+  // second SVG at the same box with no positioning maths. It shows the dp grid
+  // plus the cells the threshold produced, so the difference to the graphic
+  // underneath is what the construction rules changed.
+  const sampledSvg = useMemo(
+    () =>
+      showSampled
+        ? renderSampledOverlay(illustration, { unitSize, paddingUnits }).svg
+        : null,
+    [showSampled, illustration, unitSize, paddingUnits],
+  );
+
+  // Canvas geometry in dp, so a click can be mapped to a drawable row and a seam
+  // can be drawn at the right height. `padding` is the safe area above the
+  // drawable area, which is where row 0 starts.
+  const geometry = useMemo(() => {
+    const { widthUnits, heightUnits } = canvasSizeUnits(illustration, paddingUnits);
+    return {
+      totalHeight: heightUnits,
+      totalWidth: widthUnits,
+      padding: effectivePadding(illustration, paddingUnits),
+      rows: illustration.canvas.heightUnits,
+    };
+  }, [illustration, paddingUnits]);
+
+  // Boxes and grouping of the current geometry, so a hover can go from a point
+  // to a whole connected part without walking the bars again on every move.
+  const parts = useMemo(() => {
+    if (!onDeletePart) return null;
+    return {
+      boxes: segmentBoxes(illustration, paddingUnits),
+      components: findComponents(illustration),
+    };
+  }, [onDeletePart, illustration, paddingUnits]);
+
+  /** Drawable row under the pointer, or null when outside the drawable area. */
+  const rowFromEvent = (event: React.MouseEvent<HTMLDivElement>): number | null => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.height === 0) return null;
+    // Fraction of the canvas -> dp from the top -> row inside the drawable area.
+    const dp = ((event.clientY - box.top) / box.height) * geometry.totalHeight;
+    const row = Math.floor(dp) - geometry.padding;
+    return row >= 0 && row < geometry.rows ? row : null;
+  };
+
+  /** Pointer position in grid units, safe area included. */
+  const pointFromEvent = (
+    event: React.MouseEvent<HTMLDivElement>,
+  ): SegmentAnchor | null => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return null;
+    return {
+      x: ((event.clientX - box.left) / box.width) * geometry.totalWidth,
+      y: ((event.clientY - box.top) / box.height) * geometry.totalHeight,
+    };
+  };
+
+  /**
+   * What would be removed at a point, as boxes ready to be drawn: the single
+   * segment under the pointer, or its whole connected part when `whole` is set.
+   */
+  const targetAt = (point: SegmentAnchor, whole: boolean) => {
+    if (!parts) return null;
+    const hit = segmentNear(
+      parts.boxes,
+      point.x,
+      point.y,
+      SEGMENT_PICK_TOLERANCE_DP,
+    );
+    if (!hit) return null;
+
+    const wanted = new Set<string>();
+    if (whole) {
+      const id = parts.components.idOf.get(refKey(hit));
+      if (id === undefined) return null;
+      for (const ref of parts.components.members[id]) wanted.add(refKey(ref));
+    } else {
+      wanted.add(refKey(hit));
+    }
+
+    return parts.boxes
+      .filter((box) => wanted.has(refKey(box.ref)))
+      .map(({ x, y, width, height }) => ({ x, y, width, height }));
+  };
+
+  /** Erases at a point, if there is anything there. */
+  const eraseAt = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onDeletePart) return;
+    const point = pointFromEvent(event);
+    if (!point) return;
+    const whole = event.shiftKey;
+    if (!targetAt(point, whole)) return;
+    onDeletePart(whole ? { ...point, whole: true } : point);
+    setHoverPart(null);
+  };
+
+  // Press erases straight away and starts wiping, so a whole row of strokes can
+  // be taken out in one gesture instead of one click each.
+  const handleEraseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    setErasing(true);
+    eraseAt(event);
+  };
+
+  const handleEraseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (erasing) {
+      eraseAt(event);
+      return;
+    }
+    const point = pointFromEvent(event);
+    setHoverPart(point ? targetAt(point, event.shiftKey) : null);
+  };
+
+  /** The existing seam within grabbing distance of a row, if any. */
+  const seamNear = (row: number): number | undefined =>
+    seams.find((seam) => Math.abs(seam - row) <= SEAM_GRAB_DP);
+
+  // Pressing an existing seam picks it up; pressing empty space adds one and
+  // picks that up straight away, so it can be positioned in the same gesture.
+  const handleDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onSeamsChange) return;
+    const row = rowFromEvent(event);
+    if (row === null) return;
+
+    const existing = seamNear(row);
+    if (existing !== undefined) {
+      setDragRow(existing);
+      return;
+    }
+
+    onSeamsChange([...seams, row].sort((a, b) => a - b));
+    setDragRow(row);
+  };
+
+  const handleMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onSeamsChange) return;
+    const row = rowFromEvent(event);
+    setHoverRow(row);
+
+    if (dragRow === null || row === null || row === dragRow) return;
+    // Move the dragged seam to the new row, dropping a duplicate if it lands on
+    // another one. `dragRow` follows the value so the next move continues from it.
+    const moved = seams.filter((seam) => seam !== dragRow && seam !== row);
+    onSeamsChange([...moved, row].sort((a, b) => a - b));
+    setDragRow(row);
+  };
+
+  const endDrag = () => setDragRow(null);
+
+  // Double click removes: a deliberate gesture, so a single click can be used for
+  // placing and dragging without ever destroying a seam by accident.
+  const handleDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onSeamsChange) return;
+    const row = rowFromEvent(event);
+    if (row === null) return;
+    const existing = seamNear(row);
+    if (existing === undefined) return;
+    onSeamsChange(seams.filter((seam) => seam !== existing));
+    setDragRow(null);
+  };
+
+  // The overlay box is expressed as fractions of the full canvas, so it lines up
+  // with the fitted motif at whatever scale the stage renders the SVG at. The
+  // graphic sizes the wrapper via the grid, and every overlay shares that single
+  // grid cell, so they always cover exactly the graphic - no matter whether the
+  // stage constrains it by width or by height.
+  // The SVG is generated locally from validated integer data only.
+  return (
+    <div
+      className="bar-preview"
+      data-seam-tool={
+        onSeamsChange
+          ? dragRow !== null
+            ? "dragging"
+            : hoverRow !== null && seamNear(hoverRow) !== undefined
+              ? "grab"
+              : "true"
+          : undefined
+      }
+      data-delete-tool={
+        onDeletePart ? (hoverPart ? "target" : "true") : undefined
+      }
+      style={{ aspectRatio: `${result.width} / ${result.height}` }}
+      onMouseDown={
+        onSeamsChange ? handleDown : onDeletePart ? handleEraseDown : undefined
+      }
+      onMouseMove={
+        onSeamsChange ? handleMove : onDeletePart ? handleEraseMove : undefined
+      }
+      onMouseUp={
+        onSeamsChange ? endDrag : onDeletePart ? () => setErasing(false) : undefined
+      }
+      onDoubleClick={onSeamsChange ? handleDoubleClick : undefined}
+      onMouseLeave={
+        onSeamsChange
+          ? () => {
+              setHoverRow(null);
+              endDrag();
+            }
+          : onDeletePart
+            ? () => {
+                setHoverPart(null);
+                setErasing(false);
+              }
+            : undefined
+      }
+    >
+      {/* Layer order bottom to top: source photo, then the strokes over it, then
+          the dp grid on top. So the template shows through beneath the graphic. */}
+      {showSource ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          className="bar-preview-overlay"
+          src={overlay.src}
+          alt=""
+          aria-hidden="true"
+          style={{
+            opacity: overlayOpacity,
+            insetInlineStart: `${overlay.sourceBox.left * 100}%`,
+            insetBlockStart: `${overlay.sourceBox.top * 100}%`,
+            inlineSize: `${overlay.sourceBox.width * 100}%`,
+            blockSize: `${overlay.sourceBox.height * 100}%`,
+          }}
+        />
+      ) : null}
+      <div
+        className="bar-preview-graphic"
+        style={{ opacity: strokesOpacity }}
+        dangerouslySetInnerHTML={{ __html: result.svg }}
+      />
+      {sampledSvg ? (
+        <div
+          className="bar-preview-sampled"
+          style={{ opacity: sampledOpacity }}
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: sampledSvg }}
+        />
+      ) : null}
+      {/* Markers for the hand placed seams, on top so they stay findable while
+          the tool is open. Only shown with the tool active - the seam itself is
+          already visible in the graphic. */}
+      {onSeamsChange
+        ? seams.map((row) => (
+            <div
+              key={row}
+              className="bar-preview-seam"
+              aria-hidden="true"
+              style={{
+                insetBlockStart: `${((geometry.padding + row) / geometry.totalHeight) * 100}%`,
+                blockSize: `${(1 / geometry.totalHeight) * 100}%`,
+              }}
+            />
+          ))
+        : null}
+      {/* What a click would remove, drawn stroke by stroke over the graphic so
+          the extent of the connected part is unambiguous before committing. */}
+      {hoverPart?.map((box, index) => (
+        <div
+          key={index}
+          className="bar-preview-part"
+          aria-hidden="true"
+          style={{
+            insetInlineStart: `${(box.x / geometry.totalWidth) * 100}%`,
+            insetBlockStart: `${(box.y / geometry.totalHeight) * 100}%`,
+            inlineSize: `${(box.width / geometry.totalWidth) * 100}%`,
+            blockSize: `${(box.height / geometry.totalHeight) * 100}%`,
+          }}
+        />
+      ))}
+      {/* The guide only shows on empty rows, so it never doubles a placed seam. */}
+      {onSeamsChange &&
+      dragRow === null &&
+      hoverRow !== null &&
+      seamNear(hoverRow) === undefined ? (
+        <div
+          className="bar-preview-seam-guide"
+          aria-hidden="true"
+          style={{
+            insetBlockStart: `${((geometry.padding + hoverRow) / geometry.totalHeight) * 100}%`,
+            blockSize: `${(1 / geometry.totalHeight) * 100}%`,
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** Shared helper so the export uses exactly the previewed options. */
+export function buildSvg(
+  illustration: BarIllustration,
+  unitSize: number,
+  paddingUnits: number,
+): string {
+  return renderIllustration(illustration, { unitSize, paddingUnits }).svg;
+}

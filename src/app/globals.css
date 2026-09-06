@@ -1,0 +1,592 @@
+/* DB UX Design System v3
+   Layer order matters: the DB brand theme must come before the component styles.
+   db-theme provides the licensed DB assets (DB Neo Screen Sans, DB colors) and is
+   decrypted at install time via ASSET_INIT_VECTOR / ASSET_PASSWORD.
+
+   Note: the design system relies on modern CSS such as light-dark(). The
+   browserslist in package.json keeps the CSS pipeline from downlevelling it. */
+@layer db-theme, db-ux;
+
+@import "@db-ux/db-theme/build/styles/rollup.css" layer(db-theme);
+@import "@db-ux/core-components/build/styles/bundle.css" layer(db-ux);
+
+/* Application layout only. Typography, colors and component styling come from
+   the design system - never override them here. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  block-size: 100%;
+}
+
+/* DBShell owns the viewport frame, the control panel and the side panel. Only
+   the inside of those is ours. The content area is one level 2 surface that the
+   preview fills completely - no card inside a card. */
+.db-shell-content {
+  background: var(--db-adaptive-bg-basic-level-2-default);
+}
+
+/* The shell renders a <main class="db-main"> inside the content area and, in the
+   default `auto` variant, pushes it up with `margin-block-end: auto`. We use
+   `variant="fixed"` instead, which is the mode meant for scrolling inside main,
+   and let main stretch so the preview can centre in the full height. */
+.db-main {
+  flex: 1;
+  min-block-size: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* The sub navigation is dimensioned for navigation items, which is too narrow
+   for selects and sliders. The component exposes its width as a custom
+   property, so this widens it without touching design system internals. */
+.db-shell-sub-navigation {
+  --db-shell-sub-navigation-inline-size: var(--db-container-sm);
+}
+
+/* The sub navigation lays its content out as a grid area called `navigation` and
+   only knows how to pad, scroll and hide a `.db-control-panel-navigation`. Our
+   settings are not a navigation, so they mirror that behaviour explicitly.
+   `position: relative` makes the panel the anchor for the tooltip that explains
+   why everything in it is disabled. */
+.settings {
+  min-inline-size: 0;
+  position: relative;
+}
+
+/* Panel title above the settings list. Typography comes from the design system
+   via `data-font-size`; this only sets the spacing below it. */
+.settings-title {
+  margin: 0 0 var(--db-spacing-fixed-md);
+  color: var(--db-adaptive-on-bg-basic-emphasis-100-default);
+}
+
+/* A second heading further down the list needs air above it to read as the start
+   of its own group rather than a label for the control before it. */
+.settings-title-section {
+  margin-block-start: var(--db-spacing-fixed-lg);
+}
+
+/* Buttons that should span the panel width say so themselves, via the design
+   system's own `width="full"`. No blanket rule here: it would also stretch the
+   icon buttons next to a tool toggle, which have to stay icon sized. */
+
+/* One stack with a single, consistent rhythm between fields. The gap between
+   fields has to be larger than the `3xs` gap a field uses internally between its
+   own label, control and state line, otherwise a field's state text sticks to
+   the next field's label and the spacing reads as uneven. Deliberately not a
+   DBStack: that carries `block-size: 100%` and would take the whole panel
+   height, which is what left the void in the middle of the panel. */
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-spacing-fixed-md);
+  min-inline-size: 0;
+}
+
+.db-shell-sub-navigation[data-open="true"] .settings {
+  grid-area: navigation;
+  overflow: hidden auto;
+  padding: var(--db-spacing-fixed-md);
+}
+
+/* Collapsed the panel shrinks to the width of its toggle button, so the content
+   has to go away with it - otherwise it just overflows the panel. */
+.db-shell-sub-navigation[data-open="false"] .settings {
+  display: none;
+}
+
+/* Flex items default to their content width and refuse to shrink below it,
+   which is what pushed long labels and file names past the panel edge. */
+.settings .db-stack,
+.settings .db-stack > * {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+/* DBStack ships with `overflow: auto` so it can fill a container on its own.
+   Wherever we use it the surrounding element already handles scrolling, and the
+   clipped padding box cut off focus rings, so the stack stays open everywhere. */
+.db-stack {
+  overflow: visible;
+}
+
+.workspace-preview {
+  min-block-size: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--db-spacing-fixed-sm);
+  padding: var(--db-spacing-fixed-md);
+}
+
+/* The actions DBStack sits in the stage flow next to the graphic. It must take
+   only the height of its buttons, not stretch to fill, so the pair stays centred
+   as one block. */
+.preview-stage .db-stack {
+  block-size: auto;
+  flex: 0 0 auto;
+}
+
+/* Facts about the graphic on the left, the toolbar on the right. `align-items:
+   end` keeps both on the baseline of the row even when the meta text wraps. */
+.preview-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--db-spacing-fixed-sm);
+}
+
+.preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-spacing-fixed-3xs);
+  min-inline-size: 0;
+  flex: 1 1 16rem;
+}
+
+/* One tool per row: the toggle takes the remaining width, its icon buttons keep
+   their intrinsic size at the end. */
+.tool-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--db-spacing-fixed-2xs);
+}
+
+.tool-row > :first-child {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.tool-row > :not(:first-child) {
+  flex: 0 0 auto;
+}
+
+/* A toggle that is on reads as pressed, not as brand coloured. Brand belongs to
+   the one primary action (Export); using it for tool state made two unrelated
+   things look equally important.
+
+   These rules sit outside any layer, and unlayered CSS beats layered CSS whatever
+   the specificity, so they also hold while the design system's own hover applies.
+   Each variant keeps its own pressed token, matching what it uses for a real
+   press. */
+.db-button[data-variant="filled"][aria-pressed="true"] {
+  background-color: var(--db-adaptive-bg-basic-transparent-semi-pressed);
+}
+
+.db-button[data-variant="ghost"][aria-pressed="true"] {
+  background-color: var(--db-adaptive-bg-basic-transparent-full-pressed);
+}
+
+/* An icon only button hides its label with `font-size: 0`, and a tooltip placed
+   inside that button inherits it - so the tooltip would open up empty. Giving the
+   tooltip its own size restores it; a declaration on the child beats the parent's
+   inherited value, even though that one is `!important`. */
+.db-button[data-no-text="true"] .db-tooltip {
+  font: var(--db-type-body-sm);
+}
+
+/* One compact row of controls. DBCard stacks its content in a column, so the
+   direction has to be set explicitly - only overriding `display: flex` leaves
+   the column direction in place. */
+.preview-toolbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--db-spacing-fixed-sm);
+  inline-size: auto;
+  flex: 0 0 auto;
+}
+
+/* The drawer content area stretches so its body can use the full height. */
+.db-drawer-content {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+/* Drawer content fills the height so the confirm button can be pinned to the
+   bottom (via margin-block-start: auto on the last child) at full width. */
+.drawer-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-spacing-fixed-md);
+}
+
+.drawer-body > :last-child {
+  margin-block-start: auto;
+}
+
+/* A large, full-emphasis image icon above the empty-state call to action. DB
+   sizes its icon glyph from `--db-icon-font-size`, so that is the value to set;
+   the colour is the icon token, forced to full emphasis. */
+.preview-empty-icon {
+  --db-icon-font-size: 96px;
+  --db-icon-color: var(--db-adaptive-on-bg-basic-emphasis-100-default);
+  color: var(--db-adaptive-on-bg-basic-emphasis-100-default);
+}
+
+/* Title and its edit button on one line; the button stays put while a long title
+   truncates. */
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: var(--db-spacing-fixed-2xs);
+  min-inline-size: 0;
+}
+
+.preview-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  min-inline-size: 0;
+}
+
+/* No own surface: the stage sits directly on the level 2 content background so
+   the preview reads as one area instead of a nested card. The graphic and its
+   actions are centred together as one block, so the buttons sit right under the
+   canvas and the free space ends up around the pair, not between them. */
+.preview-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--db-spacing-fixed-md);
+  min-block-size: 0;
+  overflow: auto;
+}
+
+/* The graphic takes the height that is left after the actions, so a tall motif
+   shrinks to fit instead of pushing the buttons out of the stage. */
+.preview-stage .bar-preview {
+  min-block-size: 0;
+}
+
+/* Single canvas: just pass the stage sizing straight through to the graphic. */
+.preview-single {
+  display: contents;
+}
+
+/* Compare view: strokes and template side by side. The row sizes to its content
+   and may shrink, but never grows - otherwise it would fill the stage and push
+   the actions underneath it away from the canvases. */
+.preview-compare {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: var(--db-spacing-fixed-md);
+  flex: 0 1 auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+/* Both canvases shrink from their intrinsic size rather than forcing the row
+   wider than the stage. */
+.preview-compare > .bar-preview {
+  flex: 0 1 auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+  max-block-size: 100%;
+}
+
+/* The compare toggle sits at the far end of the toolbar row. */
+.preview-toolbar-compare {
+  margin-inline-start: auto;
+}
+
+.preview-stage svg {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: 100%;
+  block-size: auto;
+}
+
+/* The graphic and its overlays share one grid cell, so they always cover the
+   exact same box. The wrapper keeps the graphic's aspect ratio (set inline) and
+   is constrained to the stage, so width and height scale together - a tall motif
+   no longer leaves the wrapper wider than the graphic, which is what pushed the
+   overlays outside the canvas. */
+.bar-preview {
+  position: relative;
+  display: grid;
+  grid-template: 1fr / 1fr;
+  max-inline-size: 100%;
+  max-block-size: 100%;
+  min-block-size: 0;
+  min-inline-size: 0;
+  /* The white ground lives here, not in the graphic, so the template shows
+     through the transparent strokes without the canvas ever losing its
+     background. */
+  background: #ffffff;
+}
+
+.bar-preview > * {
+  grid-area: 1 / 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+/* Explicit stacking order: template photo at the bottom, strokes over it, dp
+   grid on top. Needed because the photo is absolutely positioned and would
+   otherwise sit above the statically placed graphic regardless of DOM order. */
+.bar-preview-overlay {
+  z-index: 1;
+}
+
+.bar-preview-graphic {
+  display: block;
+  position: relative;
+  z-index: 2;
+}
+
+.bar-preview-sampled {
+  z-index: 3;
+}
+
+.bar-preview-graphic svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* Position and size are set inline as fractions of the canvas, so the overlay
+   sits on exactly the area the motif was fitted into. */
+.bar-preview-overlay {
+  position: absolute;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+/* Seam tool cursors: crosshair over empty rows (a press places a line), grab
+   over an existing line, grabbing while it is being dragged. */
+.bar-preview[data-seam-tool="true"] {
+  cursor: crosshair;
+}
+
+.bar-preview[data-seam-tool="grab"] {
+  cursor: grab;
+}
+
+.bar-preview[data-seam-tool="dragging"] {
+  cursor: grabbing;
+}
+
+/* Delete tool: a crosshair over the canvas, the pointer once a part is actually
+   under the cursor and a click would remove something. */
+.bar-preview[data-delete-tool="true"] {
+  cursor: crosshair;
+}
+
+.bar-preview[data-delete-tool="target"] {
+  cursor: pointer;
+}
+
+.bar-preview[data-delete-tool] {
+  user-select: none;
+}
+
+/* What a click would remove: one box per affected stroke, above the graphic and
+   the grid so it stays readable on a dense motif. Opaque enough that a single
+   2 dp stroke still reads as marked. */
+.bar-preview-part {
+  position: absolute;
+  z-index: 4;
+  background: var(--db-informational-on-bg-basic-emphasis-70-default, #0087b9);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* No text selection while dragging a seam across the canvas. */
+.bar-preview[data-seam-tool] {
+  user-select: none;
+}
+
+/* Marker for a hand placed seam: a full width red line at that dp row, above
+   every other layer so it stays findable while the tool is open. */
+.bar-preview-seam {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 4;
+  background: var(--db-critical-origin-default);
+  pointer-events: none;
+}
+
+/* The guide that follows the cursor while the tool is open, so it is clear which
+   row a click would hit. Dimmer than a placed seam. */
+.bar-preview-seam-guide {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 5;
+  background: var(--db-critical-origin-default);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* The construction grid shares the graphic's canvas, so it just covers the whole
+   box. Its own SVG scales to that box. */
+.bar-preview-sampled {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.bar-preview-sampled svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* The empty state is the only thing in the content area, so it centres in the
+   full height instead of sharing a grid with a header and footer.
+
+   `place-content` is the one that matters here: `place-items` only positions an
+   item inside its own row, while `place-content` positions the row itself inside
+   the container. With a single auto sized row, only the latter centres. */
+.preview-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  block-size: 100%;
+  min-block-size: 0;
+  padding: var(--db-spacing-fixed-md);
+  text-align: center;
+}
+
+.preview-data {
+  display: grid;
+  gap: var(--db-spacing-fixed-sm);
+  max-block-size: 30dvh;
+  overflow: auto;
+}
+
+.rule {
+  inline-size: 100%;
+  block-size: var(--db-border-width-2xs);
+  margin: 0;
+  border: 0;
+  background: var(--db-adaptive-on-bg-basic-emphasis-60-default);
+}
+
+.thumb {
+  inline-size: var(--db-sizing-xl);
+  block-size: var(--db-sizing-xl);
+  object-fit: contain;
+  border: var(--db-border-width-2xs) solid
+    var(--db-adaptive-on-bg-basic-emphasis-60-default);
+  border-radius: var(--db-border-radius-sm);
+  background: var(--db-adaptive-bg-basic-level-1-default);
+  flex: 0 0 auto;
+}
+
+.filename {
+  font: var(--db-type-body-xs);
+  color: var(--db-adaptive-on-bg-basic-emphasis-70-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-inline-size: 0;
+}
+
+pre {
+  margin: 0;
+  background: var(--db-adaptive-bg-inverted-contrast-max-default);
+  color: var(--db-adaptive-on-bg-inverted-default);
+  padding: var(--db-spacing-fixed-sm);
+  border-radius: var(--db-border-radius-sm);
+  overflow: auto;
+  font: var(--db-type-body-xs);
+}
+
+/* The range slider has no DB UX equivalent, so it is styled with design system
+   tokens instead of magic numbers. */
+/* The tooltip anchors to its parent, so the field is the positioning context
+   and the whole field is the hover target. */
+.field {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* The state line sits below the control as an explanation of the current value,
+   so it needs a small, consistent offset from it. The label already carries its
+   own offset to the control (see `.field-label`, and the design system labels of
+   DBSelect/DBCheckbox), so the field itself must not add a gap on top - that
+   would push slider labels further from their control than select labels. */
+.field > .db-infotext {
+  margin-block-start: var(--db-spacing-fixed-3xs);
+}
+
+/* The tooltip anchors to its parent, so the label needs a positioning context
+   and must not stretch across the panel, otherwise the hover target and the
+   tooltip placement drift away from the text. */
+/* Mirrors `.db-select > label`: the typography comes from the design system via
+   `data-font-size="xs"`, this only adds the spacing below the label. */
+.field-label {
+  padding-block-end: var(--db-spacing-fixed-xs);
+  color: var(--db-adaptive-on-bg-basic-emphasis-100-default);
+  cursor: help;
+  overflow-wrap: anywhere;
+}
+
+input[type="range"] {
+  inline-size: 100%;
+  accent-color: var(--db-adaptive-origin-default);
+}
+
+/* Compact label-over-slider control for the preview toolbar, sized to sit next
+   to the small buttons rather than stretch across the row. */
+.overlay-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-spacing-fixed-3xs);
+  inline-size: 8rem;
+  color: var(--db-adaptive-on-bg-basic-emphasis-100-default);
+}
+
+.overlay-control input[type="range"] {
+  margin: 0;
+}
+
+input[type="range"]:disabled {
+  cursor: not-allowed;
+  accent-color: var(--db-adaptive-on-bg-basic-emphasis-60-default);
+}
+
+/* Matches how the design system dims its own disabled controls, so a disabled
+   slider does not look different from a disabled select next to it. */
+.field[data-disabled="true"] .field-label {
+  opacity: var(--db-opacity-lg);
+}
+
+/* Single column once the two panels no longer fit side by side. Scrolling is
+   expected on narrow screens. */
+@media (width < 60rem) {
+  .db-shell-content {
+    overflow: visible;
+  }
+
+  .workspace-preview {
+    block-size: auto;
+    overflow: visible;
+  }
+
+  .preview-stage {
+    min-block-size: 40dvh;
+  }
+
+  /* Not enough width for two canvases side by side, so stack them. */
+  .preview-compare {
+    flex-direction: column;
+  }
+}
