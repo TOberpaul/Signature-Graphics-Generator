@@ -444,15 +444,33 @@ export type ConstructStrokesOptions = {
    */
   fuseGapsBelow?: number;
   /**
-   * Rows of the drawable grid to cut as 1 dp seams, set by hand.
+   * Seams cut by hand, each one a row of the drawable grid.
    *
    * A horizontal feature only reads as its own band when there is a hair of space
    * beneath it. Detecting those places automatically needs a clear step in the
    * silhouette, which a soft shape - a dome, a rounded roof - simply does not
-   * have, so the seams are placed deliberately instead. These rows are cut across
-   * every stroke that runs through them, after fusing, so they always survive.
+   * have, so the seams are placed deliberately instead. They are cut after
+   * fusing, so they always survive.
    */
-  manualSeams?: number[];
+  manualSeams?: Seam[];
+};
+
+/**
+ * One hand placed cut through the graphic.
+ *
+ * A seam can be limited to a range of stroke slots, because a level is often a
+ * feature of one part of the motif only: the storeys of a central building are
+ * not storeys of the minarets beside it, and cutting across those would invent
+ * an edge that the object does not have. Leaving the range open cuts everything,
+ * which is the right default for a plinth or a ground line.
+ */
+export type Seam = {
+  /** Row of the drawable grid. */
+  row: number;
+  /** First stroke slot to cut. Omitted means from the left edge. */
+  from?: number;
+  /** Last stroke slot to cut, inclusive. Omitted means to the right edge. */
+  to?: number;
 };
 
 export type ConstructedStrokes = {
@@ -519,12 +537,21 @@ export function constructStrokes(
   return { columns: columns.filter((column) => column.runs.length > 0), rows, report };
 }
 
-/** Cuts each seam row across every column, splitting the runs it passes through. */
-function applySeams(columns: Column[], seams: number[], report: ConstructionReport): void {
-  for (const row of seams) {
+/**
+ * Cuts each seam, splitting the runs it passes through.
+ *
+ * Only the columns inside the seam's slot range are touched, so a seam limited to
+ * one part of the motif leaves the rest intact.
+ */
+function applySeams(columns: Column[], seams: Seam[], report: ConstructionReport): void {
+  for (const seam of seams) {
+    const from = seam.from ?? Number.NEGATIVE_INFINITY;
+    const to = seam.to ?? Number.POSITIVE_INFINITY;
+
     let cut = false;
     for (const column of columns) {
-      if (splitRunsAtRow(column, row)) cut = true;
+      if (column.x < from || column.x > to) continue;
+      if (splitRunsAtRow(column, seam.row)) cut = true;
     }
     if (cut) report.gapsSnapped += 1;
   }

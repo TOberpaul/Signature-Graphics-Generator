@@ -28,7 +28,7 @@ import {
   planSignatureCanvasForExtent,
   strokesToIllustration,
 } from "./signature";
-import type { ConstructionReport, SignatureCanvasPlan } from "./signature";
+import type { ConstructionReport, Seam, SignatureCanvasPlan } from "./signature";
 import type { BarIllustration, DetailLevel } from "./types";
 
 /** Horizontal sampling density per detail level, in bar columns. */
@@ -417,8 +417,8 @@ export type ImageSignatureOptions = {
   edgeTolerance?: number;
   /** Gaps below this size in dp are swallowed. 0 keeps every gap. */
   fuseGapsBelow?: number;
-  /** Rows of the drawable grid to cut as 1 dp seams, placed by hand. */
-  manualSeams?: number[];
+  /** Seams cut by hand, optionally limited to a range of stroke slots. */
+  manualSeams?: Seam[];
   /** Set for a light silhouette on a dark background. */
   invert?: boolean;
 };

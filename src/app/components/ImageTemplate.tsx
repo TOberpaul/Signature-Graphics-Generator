@@ -8,7 +8,7 @@ import { imageToSignature } from "@/lib/illustration/shapeMask";
 import type { MirrorMode } from "@/lib/illustration/shapeMask";
 import { validateIllustration } from "@/lib/illustration/validation";
 import { DP, DP_PITCH } from "@/lib/illustration/geometry";
-import type { SignatureCanvasPlan } from "@/lib/illustration/signature";
+import type { Seam, SignatureCanvasPlan } from "@/lib/illustration/signature";
 import type { ConversionResult, OverlayGeometry } from "@/lib/illustration/result";
 import {
   removeSegmentsAt,
@@ -22,8 +22,8 @@ type Props = {
   /** The picked file and its pixels, owned by the parent. */
   file: ImageFile;
   allowExtendedFormat: boolean;
-  /** Rows of the drawable grid to cut as seams, placed by hand in the preview. */
-  manualSeams?: number[];
+  /** Seams placed by hand in the preview, optionally limited to a slot range. */
+  manualSeams?: Seam[];
   /** Points at connected parts the user removed by hand in the preview. */
   removedParts?: SegmentAnchor[];
   onResult: (result: ConversionResult) => void;

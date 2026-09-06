@@ -27,6 +27,7 @@ import { renderIllustration } from "@/lib/illustration/renderer";
 import { DP } from "@/lib/illustration/geometry";
 import type { ConversionResult } from "@/lib/illustration/result";
 import type { SegmentAnchor } from "@/lib/illustration/segments";
+import type { Seam } from "@/lib/illustration/signature";
 
 /**
  * The preview is always rendered at this pixel size per dp and scaled to fit
@@ -71,13 +72,15 @@ export function Generator() {
   // Hand placed seams: rows of the drawable grid that are cut across every
   // stroke. Automatic detection cannot find a level on a soft shape like a dome,
   // so these are set by clicking the canvas with the tool open.
-  const [seams, setSeams] = useState<number[]>([]);
+  const [seams, setSeams] = useState<Seam[]>([]);
   const [seamTool, setSeamTool] = useState(false);
 
-  // The preview owns the whole interaction (place, drag, remove) and reports the
-  // resulting list, so there is no gesture logic duplicated here.
-  const changeSeams = useCallback((next: number[]) => {
-    setSeams([...new Set(next)].sort((a, b) => a - b));
+  // The preview owns the whole interaction (place, drag, limit, remove) and
+  // reports the resulting list, so there is no gesture logic duplicated here.
+  // Only one seam per row: two cuts on the same level would be the same edge.
+  const changeSeams = useCallback((next: Seam[]) => {
+    const byRow = new Map(next.map((seam) => [seam.row, seam]));
+    setSeams([...byRow.values()].sort((a, b) => a.row - b.row));
   }, []);
 
   // Connected parts the user removed, stored as the points that were clicked.
@@ -333,7 +336,9 @@ export function Generator() {
               </div>
               {seamTool ? (
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
-                  In die Vorschau klicken setzt eine Linie. Ziehen verschiebt sie,
+                  Ein Klick setzt eine Linie über die ganze Breite. Seitwärts
+                  ziehen begrenzt sie auf einzelne Striche, etwa nur auf das
+                  Hauptgebäude. Eine bestehende Linie lässt sich verschieben,
                   Doppelklick entfernt sie.
                 </DBInfotext>
               ) : null}

@@ -17,6 +17,8 @@ import {
   SEGMENT_PICK_TOLERANCE_DP,
 } from "@/lib/illustration/segments";
 import type { SegmentAnchor } from "@/lib/illustration/segments";
+import type { Seam } from "@/lib/illustration/signature";
+import { pitchUnitsOf, slotCount } from "@/lib/illustration/geometry";
 
 type Props = {
   illustration: BarIllustration;
@@ -33,14 +35,16 @@ type Props = {
   strokesOpacity?: number;
   /** 0 hides the dp grid overlay, 1 shows it fully opaque. */
   sampledOpacity?: number;
-  /** Rows of the drawable grid that carry a hand placed seam. */
-  seams?: number[];
+  /** Hand placed seams, each a row with an optional slot range. */
+  seams?: Seam[];
   /**
    * Set while the seam tool is active. The canvas then becomes interactive:
-   * pressing empty space adds a seam, pressing an existing one picks it up, and
-   * dragging moves it. Double click removes. Reports the full new list.
+   * pressing empty space starts a seam and dragging sideways limits it to the
+   * slots dragged across, while a plain click cuts the full width. Pressing an
+   * existing seam picks it up and dragging moves it. Double click removes.
+   * Reports the full new list.
    */
-  onSeamsChange?: (seams: number[]) => void;
+  onSeamsChange?: (seams: Seam[]) => void;
   /**
    * Set while the delete tool is active. Hovering highlights the connected part
    * under the pointer, clicking reports the point so the parent can remove it.
@@ -80,6 +84,12 @@ export function BarPreview({
   const [hoverRow, setHoverRow] = useState<number | null>(null);
   /** The seam currently being dragged, tracked by its row value. */
   const [dragRow, setDragRow] = useState<number | null>(null);
+  /**
+   * Slot the pointer went down on while drawing a new seam. Dragging away from it
+   * limits the seam to the slots covered; releasing without moving sideways
+   * leaves it spanning the full width.
+   */
+  const [drawFromSlot, setDrawFromSlot] = useState<number | null>(null);
   /** Boxes of what a click would remove, while the delete tool is open. */
   const [hoverPart, setHoverPart] = useState<
     { x: number; y: number; width: number; height: number }[] | null
@@ -123,6 +133,8 @@ export function BarPreview({
       totalWidth: widthUnits,
       padding: effectivePadding(illustration, paddingUnits),
       rows: illustration.canvas.heightUnits,
+      pitch: pitchUnitsOf(illustration.system),
+      slots: slotCount(illustration.canvas.widthUnits, illustration.system),
     };
   }, [illustration, paddingUnits]);
 
@@ -144,6 +156,20 @@ export function BarPreview({
     const dp = ((event.clientY - box.top) / box.height) * geometry.totalHeight;
     const row = Math.floor(dp) - geometry.padding;
     return row >= 0 && row < geometry.rows ? row : null;
+  };
+
+  /**
+   * Stroke slot under the pointer, clamped to the drawable range.
+   *
+   * Clamped rather than nulled outside the slots: dragging a seam's range past
+   * the edge of the motif should extend it to the edge, not abort the gesture.
+   */
+  const slotFromEvent = (event: React.MouseEvent<HTMLDivElement>): number => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.width === 0) return 0;
+    const dp = ((event.clientX - box.left) / box.width) * geometry.totalWidth;
+    const slot = Math.floor((dp - geometry.padding) / geometry.pitch);
+    return Math.min(Math.max(slot, 0), Math.max(geometry.slots - 1, 0));
   };
 
   /** Pointer position in grid units, safe area included. */
@@ -214,11 +240,14 @@ export function BarPreview({
   };
 
   /** The existing seam within grabbing distance of a row, if any. */
-  const seamNear = (row: number): number | undefined =>
-    seams.find((seam) => Math.abs(seam - row) <= SEAM_GRAB_DP);
+  const seamNear = (row: number): Seam | undefined =>
+    seams.find((seam) => Math.abs(seam.row - row) <= SEAM_GRAB_DP);
 
-  // Pressing an existing seam picks it up; pressing empty space adds one and
-  // picks that up straight away, so it can be positioned in the same gesture.
+  const sortSeams = (list: Seam[]): Seam[] =>
+    [...list].sort((a, b) => a.row - b.row);
+
+  // Pressing an existing seam picks it up; pressing empty space starts a new one
+  // and picks it up straight away, so row and range are set in one gesture.
   const handleDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!onSeamsChange) return;
     const row = rowFromEvent(event);
@@ -226,12 +255,16 @@ export function BarPreview({
 
     const existing = seamNear(row);
     if (existing !== undefined) {
-      setDragRow(existing);
+      setDragRow(existing.row);
       return;
     }
 
-    onSeamsChange([...seams, row].sort((a, b) => a - b));
+    // Starts as a full width seam. Dragging sideways narrows it down; releasing
+    // without moving leaves it as it is, which keeps a plain click the shortest
+    // path to the common case.
+    onSeamsChange(sortSeams([...seams, { row }]));
     setDragRow(row);
+    setDrawFromSlot(slotFromEvent(event));
   };
 
   const handleMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -239,15 +272,39 @@ export function BarPreview({
     const row = rowFromEvent(event);
     setHoverRow(row);
 
-    if (dragRow === null || row === null || row === dragRow) return;
-    // Move the dragged seam to the new row, dropping a duplicate if it lands on
-    // another one. `dragRow` follows the value so the next move continues from it.
-    const moved = seams.filter((seam) => seam !== dragRow && seam !== row);
-    onSeamsChange([...moved, row].sort((a, b) => a - b));
+    if (dragRow === null || row === null) return;
+
+    const others = seams.filter((seam) => seam.row !== dragRow && seam.row !== row);
+    const dragged = seams.find((seam) => seam.row === dragRow);
+
+    // While drawing a new seam, sideways movement defines the slot range. One
+    // slot of travel is treated as intent, so a click that wobbles by a pixel
+    // still cuts the full width.
+    if (drawFromSlot !== null) {
+      const slot = slotFromEvent(event);
+      const spans = Math.abs(slot - drawFromSlot) >= 1;
+      const next: Seam = spans
+        ? {
+            row,
+            from: Math.min(drawFromSlot, slot),
+            to: Math.max(drawFromSlot, slot),
+          }
+        : { row };
+      onSeamsChange(sortSeams([...others, next]));
+      setDragRow(row);
+      return;
+    }
+
+    if (row === dragRow) return;
+    // Moving an existing seam keeps whatever range it already has.
+    onSeamsChange(sortSeams([...others, { ...dragged, row }]));
     setDragRow(row);
   };
 
-  const endDrag = () => setDragRow(null);
+  const endDrag = () => {
+    setDragRow(null);
+    setDrawFromSlot(null);
+  };
 
   // Double click removes: a deliberate gesture, so a single click can be used for
   // placing and dragging without ever destroying a seam by accident.
@@ -257,8 +314,8 @@ export function BarPreview({
     if (row === null) return;
     const existing = seamNear(row);
     if (existing === undefined) return;
-    onSeamsChange(seams.filter((seam) => seam !== existing));
-    setDragRow(null);
+    onSeamsChange(seams.filter((seam) => seam.row !== existing.row));
+    endDrag();
   };
 
   // The overlay box is expressed as fractions of the full canvas, so it lines up
@@ -342,17 +399,34 @@ export function BarPreview({
           the tool is open. Only shown with the tool active - the seam itself is
           already visible in the graphic. */}
       {onSeamsChange
-        ? seams.map((row) => (
-            <div
-              key={row}
-              className="bar-preview-seam"
-              aria-hidden="true"
-              style={{
-                insetBlockStart: `${((geometry.padding + row) / geometry.totalHeight) * 100}%`,
-                blockSize: `${(1 / geometry.totalHeight) * 100}%`,
-              }}
-            />
-          ))
+        ? seams.map((seam) => {
+            // A limited seam is drawn only over the slots it cuts, so its reach is
+            // visible without having to read it off the strokes.
+            const from = seam.from ?? 0;
+            const to = seam.to ?? Math.max(geometry.slots - 1, 0);
+            const limited = seam.from !== undefined || seam.to !== undefined;
+            const start = limited
+              ? (geometry.padding + from * geometry.pitch) / geometry.totalWidth
+              : 0;
+            const width = limited
+              ? ((to - from + 1) * geometry.pitch - illustration.system.gapUnits) /
+                geometry.totalWidth
+              : 1;
+
+            return (
+              <div
+                key={`${seam.row}:${from}:${to}`}
+                className="bar-preview-seam"
+                aria-hidden="true"
+                style={{
+                  insetBlockStart: `${((geometry.padding + seam.row) / geometry.totalHeight) * 100}%`,
+                  blockSize: `${(1 / geometry.totalHeight) * 100}%`,
+                  insetInlineStart: `${start * 100}%`,
+                  inlineSize: `${width * 100}%`,
+                }}
+              />
+            );
+          })
         : null}
       {/* What a click would remove, drawn stroke by stroke over the graphic so
           the extent of the connected part is unambiguous before committing. */}

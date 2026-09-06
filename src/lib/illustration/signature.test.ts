@@ -377,7 +377,7 @@ describe("manual seams", () => {
     const plain = constructStrokes(block(10, 40));
     expect(plain.columns[0].runs.length).toBe(1);
 
-    const seamed = constructStrokes(block(10, 40), { manualSeams: [20] });
+    const seamed = constructStrokes(block(10, 40), { manualSeams: [{ row: 20 }] });
 
     for (const column of seamed.columns) {
       const runs = [...column.runs].sort((a, b) => a.y - b.y);
@@ -390,11 +390,36 @@ describe("manual seams", () => {
     // Seams are applied after fusing, so joining columns can never close them.
     const seamed = constructStrokes(block(10, 40), {
       fuseGapsBelow: DP.intentionalVerticalGap,
-      manualSeams: [15, 30],
+      manualSeams: [{ row: 15 }, { row: 30 }],
     });
 
     for (const column of seamed.columns) {
       expect(column.runs.length).toBe(3);
+    }
+  });
+
+  it("cuts only the slots inside the seam's range", () => {
+    // The Hagia Sophia case: a level of the central building is not a level of
+    // the minarets beside it, so cutting across them would invent an edge.
+    const seamed = constructStrokes(block(10, 40), {
+      fuseGapsBelow: DP.intentionalVerticalGap,
+      manualSeams: [{ row: 20, from: 3, to: 6 }],
+    });
+
+    for (const column of seamed.columns) {
+      const inRange = column.x >= 3 && column.x <= 6;
+      expect(column.runs.length).toBe(inRange ? 2 : 1);
+    }
+  });
+
+  it("treats an open ended range as reaching the edge", () => {
+    const seamed = constructStrokes(block(10, 40), {
+      fuseGapsBelow: DP.intentionalVerticalGap,
+      manualSeams: [{ row: 20, to: 4 }],
+    });
+
+    for (const column of seamed.columns) {
+      expect(column.runs.length).toBe(column.x <= 4 ? 2 : 1);
     }
   });
 
@@ -404,7 +429,7 @@ describe("manual seams", () => {
     const seamed = constructStrokes(block(10, 40), {
       fuseGapsBelow: DP.intentionalVerticalGap,
       edgeTolerance: 8,
-      manualSeams: [20],
+      manualSeams: [{ row: 20 }],
     });
 
     for (const column of seamed.columns) {
@@ -421,7 +446,7 @@ describe("manual seams", () => {
     const column = block(1, 40);
     const seamed = constructStrokes(column, {
       fuseGapsBelow: DP.intentionalVerticalGap,
-      manualSeams: [37],
+      manualSeams: [{ row: 37 }],
     });
 
     const runs = [...seamed.columns[0].runs].sort((a, b) => a.y - b.y);

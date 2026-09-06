@@ -412,11 +412,11 @@ body {
   user-select: none;
 }
 
-/* Marker for a hand placed seam: a full width red line at that dp row, above
-   every other layer so it stays findable while the tool is open. */
+/* Marker for a hand placed seam: a red line at that dp row, above every other
+   layer so it stays findable while the tool is open. Start and width are set
+   inline, because a seam can be limited to a range of strokes. */
 .bar-preview-seam {
   position: absolute;
-  inset-inline: 0;
   z-index: 4;
   background: var(--db-critical-origin-default);
   pointer-events: none;
