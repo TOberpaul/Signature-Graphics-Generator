@@ -351,12 +351,14 @@ function greyImage(rows: string[]): RasterImage {
   const width = rows[0].length;
   const height = rows.length;
   const data = new Uint8ClampedArray(width * height * 4);
+  // "#" black, ":" dark grey, "+" mid grey, "." white. Two grey levels are needed
+  // to build a group that only breaks through to the outside at a higher level.
+  const levels: Record<string, number> = { "#": 0, ":": 77, "+": 128, ".": 255 };
 
   for (const [y, row] of rows.entries()) {
     for (let x = 0; x < width; x += 1) {
       const offset = (y * width + x) * 4;
-      const char = row[x];
-      const value = char === "#" ? 0 : char === "+" ? 128 : 255;
+      const value = levels[row[x]] ?? 255;
       data[offset] = value;
       data[offset + 1] = value;
       data[offset + 2] = value;
@@ -399,6 +401,41 @@ describe("imageToGridWithDetail", () => {
     expect(imageToGridWithDetail(image, 5, 5, 0.3, 0.1).rows).toEqual(
       imageToGrid(image, 5, 5, 0.3).rows,
     );
+  });
+
+  it("only ever opens more as the detail level rises", () => {
+    // The complaint this guards against: an opening appeared at one setting and was
+    // gone again at a higher one, which makes the control impossible to reason
+    // about.
+    //
+    // The mid grey middle is a candidate from a low level on, enclosed by the dark
+    // grey ring, and gets opened. Higher up the ring becomes a candidate too, the
+    // group grows to include it, and now it touches the white outside - so it is no
+    // longer enclosed and the opening would be lost again.
+    const image = greyImage([".....", ".:::.", ".:+:.", ".:::.", "....."]);
+
+    let previous = 0;
+    for (let detail = 0; detail <= 1.0001; detail += 0.05) {
+      const grid = imageToGridWithDetail(
+        image,
+        5,
+        5,
+        0.3,
+        detailThreshold(0.3, detail),
+      );
+      const open = [...grid.rows.join("")].filter((cell) => cell === ".").length;
+
+      expect(
+        open,
+        `detail ${detail.toFixed(2)} opened fewer cells than the setting below it`,
+      ).toBeGreaterThanOrEqual(previous);
+      previous = open;
+    }
+
+    // And the middle really does open at some point, so the test is not just
+    // watching a shape that never changes.
+    const fully = imageToGridWithDetail(image, 5, 5, 0.3, detailThreshold(0.3, 1));
+    expect(fully.rows[2][2]).toBe(".");
   });
 
   it("leaves an opening that reaches the edge closed", () => {

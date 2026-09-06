@@ -339,7 +339,7 @@ export function Generator() {
                     setDeleteTool(false);
                   }}
                 >
-                  {seamTool ? "Trennlinien fertig" : "Trennlinien setzen"}
+                  {seamTool ? "Trennlinien setzen beenden" : "Trennlinien setzen"}
                 </DBButton>
                 {seams.length > 0 ? (
                   <IconAction
@@ -375,7 +375,7 @@ export function Generator() {
                     setSeamTool(false);
                   }}
                 >
-                  {deleteTool ? "Striche löschen fertig" : "Striche löschen"}
+                  {deleteTool ? "Striche löschen beenden" : "Striche löschen"}
                 </DBButton>
                 {removedParts.length > 0 ? (
                   <>

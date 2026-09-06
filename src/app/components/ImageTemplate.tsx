@@ -77,6 +77,17 @@ function imageToDataUrl(image: RasterImage): string | null {
 }
 
 /**
+ * Mask cleanup strength, fixed rather than exposed as a control.
+ *
+ * As a knob it was misleading. The construction rules that run afterwards remove
+ * every run under 4 dp and swallow every gap under 4 dp - the same job, done far
+ * more firmly - so moving the slider changed little or nothing, which reads as a
+ * broken control rather than a subtle one. At the lowest setting what remains is
+ * the part that still earns its place: a single stray cell counts as noise.
+ */
+const CLEANUP_STRENGTH = 0;
+
+/**
  * Settings that describe how the template is read.
  *
  * The image is measured directly on the stroke grid and thresholded there, so
@@ -100,7 +111,6 @@ export function ImageTemplate({
 
   const [threshold, setThreshold] = useState(0.5);
   const [detail, setDetail] = useState(0);
-  const [cleanup, setCleanup] = useState(0);
   const [edgeTolerance, setEdgeTolerance] = useState(0);
   const [mirrorOn, setMirrorOn] = useState(false);
   const [mirrorHalf, setMirrorHalf] = useState<MirrorMode>("left");
@@ -123,7 +133,7 @@ export function ImageTemplate({
       {
         threshold,
         detail,
-        cleanup,
+        cleanup: CLEANUP_STRENGTH,
         mirror,
         allowExtendedFormat,
         edgeTolerance,
@@ -179,7 +189,7 @@ export function ImageTemplate({
       grid: sampled,
       provider: "image",
       subject: label,
-      cleanup,
+      cleanup: CLEANUP_STRENGTH,
       durationMs: 0,
       warnings,
       overlay,
@@ -200,7 +210,6 @@ export function ImageTemplate({
     detail,
     mirrorOn,
     mirrorHalf,
-    cleanup,
     allowExtendedFormat,
     edgeTolerance,
     manualSeams,
@@ -243,25 +252,6 @@ export function ImageTemplate({
         step={0.05}
         disabled={disabled}
         onChange={setDetail}
-      />
-
-      <RangeSetting
-        id="cleanup"
-        label={`Bereinigung ${Math.round(cleanup * 100)} %`}
-        help="Räumt das Raster auf: entfernt kleine freistehende Flecken neben der Form und schließt winzige Löcher darin. Je weiter rechts, desto größer dürfen die Teile sein, die verschwinden - dann fallen auch feine echte Details weg. Größe und Strichanzahl bleiben davon unberührt, die legt das Format fest."
-        state={
-          cleanup === 0
-            ? "Aus: nur einzelne Pixel gelten als Rauschen, sonst bleibt alles."
-            : cleanup <= 0.35
-              ? "Entfernt kleine freistehende Flecken und schließt winzige Lücken."
-              : "Räumt kräftig auf: auch kleine echte Details fallen weg."
-        }
-        value={cleanup}
-        min={0}
-        max={1}
-        step={0.05}
-        disabled={disabled}
-        onChange={setCleanup}
       />
 
       <RangeSetting

@@ -291,24 +291,81 @@ export function imageToGridWithDetail(
     return imageToGrid(image, cols, rowCount, threshold, invert);
   }
 
-  // One measurement, two decisions. Measuring twice would be the same numbers.
+  // One measurement for all of it. Measuring again per level would be the same
+  // numbers with a different cut off.
   const values = inkCoverageGrid(image, cols, rowCount, invert);
-  const at = (x: number, y: number) => values[y * cols + x];
+  const holes = new Uint8Array(cols * rowCount);
 
-  /** 0 = outside the shape, 1 = material, 2 = candidate for an opening. */
-  const state: Uint8Array = new Uint8Array(cols * rowCount);
-  for (let y = 0; y < rowCount; y += 1) {
-    for (let x = 0; x < cols; x += 1) {
-      const ink = at(x, y);
-      state[y * cols + x] = ink < threshold ? 0 : ink >= detailThreshold ? 1 : 2;
-    }
+  // Sweeping the levels rather than testing only the final one is what makes the
+  // control behave predictably. A group of candidate cells grows as the level
+  // rises, and at some point it breaks through to the outside and stops counting
+  // as enclosed - so testing the final level alone made openings appear and then
+  // disappear again as the slider went up. Accumulating every level up to it means
+  // an opening found once stays found, and raising the setting can only ever add.
+  for (const level of detailLevels(threshold, detailThreshold)) {
+    markEnclosedHoles(values, cols, rowCount, threshold, level, holes);
   }
 
-  // Flood fill each group of candidates. A group touching the outside - or the
-  // border, which is outside by definition - is the soft rim of the silhouette
-  // and stays filled. A fully enclosed group becomes an opening.
+  const gridRows: string[] = [];
+  for (let y = 0; y < rowCount; y += 1) {
+    let line = "";
+    for (let x = 0; x < cols; x += 1) {
+      const index = y * cols + x;
+      line += values[index] >= threshold && !holes[index] ? "#" : ".";
+    }
+    gridRows.push(line);
+  }
+
+  return { widthCells: cols, heightCells: rowCount, rows: gridRows };
+}
+
+/** Step between the levels swept between the two thresholds. */
+const DETAIL_SWEEP_STEP = 0.05;
+
+/**
+ * The levels to sweep, always including the requested one.
+ *
+ * Raising `detailThreshold` extends this list without changing the entries below
+ * it, which is what carries the monotonicity: more levels can only find more.
+ */
+function detailLevels(threshold: number, detailThreshold: number): number[] {
+  const levels: number[] = [];
+  for (
+    let level = threshold + DETAIL_SWEEP_STEP;
+    level < detailThreshold;
+    level += DETAIL_SWEEP_STEP
+  ) {
+    levels.push(level);
+  }
+  levels.push(detailThreshold);
+  return levels;
+}
+
+/**
+ * Marks every enclosed group of candidate cells at one level into `holes`.
+ *
+ * A candidate is inside the shape at `threshold` but below `level`, so it is
+ * material the generous pass kept and the strict pass would drop. Those groups are
+ * either an opening or the soft rim of the silhouette, and the difference is
+ * whether the group reaches the outside - the rim does, and eroding it is what
+ * makes an outline fray.
+ */
+function markEnclosedHoles(
+  values: number[],
+  cols: number,
+  rowCount: number,
+  threshold: number,
+  level: number,
+  holes: Uint8Array,
+): void {
+  /** 0 = outside the shape, 1 = material, 2 = candidate for an opening. */
+  const state = new Uint8Array(cols * rowCount);
+  for (let index = 0; index < state.length; index += 1) {
+    const ink = values[index];
+    state[index] = ink < threshold ? 0 : ink >= level ? 1 : 2;
+  }
+
   const visited = new Uint8Array(cols * rowCount);
-  const holes = new Uint8Array(cols * rowCount);
 
   for (let start = 0; start < state.length; start += 1) {
     if (state[start] !== 2 || visited[start]) continue;
@@ -354,18 +411,6 @@ export function imageToGridWithDetail(
       for (const index of group) holes[index] = 1;
     }
   }
-
-  const gridRows: string[] = [];
-  for (let y = 0; y < rowCount; y += 1) {
-    let line = "";
-    for (let x = 0; x < cols; x += 1) {
-      const index = y * cols + x;
-      line += state[index] !== 0 && !holes[index] ? "#" : ".";
-    }
-    gridRows.push(line);
-  }
-
-  return { widthCells: cols, heightCells: rowCount, rows: gridRows };
 }
 
 /**

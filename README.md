@@ -15,17 +15,21 @@ deinen Rechner nicht.
 2. **Einstellungen anpassen**, links im Panel:
    - **Schwellwert** – ab welcher Flächendeckung eine Rasterzelle zum Strich wird.
      Niedrig lässt die Form wachsen, hoch lässt sie schrumpfen.
-   - **Bereinigung** – entfernt kleine freistehende Flecken und schließt winzige Löcher.
+   - **Innenstruktur** – misst das Innere strenger als den Umriss. Damit bleibt der
+     Schwellwert niedrig, die Grundform sitzt, und Fenster oder Portale kommen
+     trotzdem als Lücken heraus.
    - **Kantenausgleich** – zieht Kanten, die fast auf einer Ebene liegen, auf eine gemeinsame.
      Hilft gegen Perspektive in der Vorlage.
    - **Exakte Spiegelung** – nur für echte Frontalansichten sinnvoll.
 3. **Nachbearbeiten** mit den Werkzeugen:
    - **Trennlinien setzen** – Klick in die Vorschau setzt eine waagerechte Trennung,
-     Ziehen verschiebt sie, Doppelklick entfernt sie. Für Kanten, die die Vorlage nicht
-     deutlich genug hergibt.
+     Ziehen verschiebt sie, Doppelklick entfernt sie. Seitwärts ziehen begrenzt sie auf
+     einzelne Striche, an der Unterkante ziehen macht den Schnitt 4 dp hoch. Für Kanten,
+     die die Vorlage nicht deutlich genug hergibt.
    - **Striche löschen** – Klick entfernt einen Strichabschnitt, Ziehen wischt mehrere weg,
-     Shift markiert den ganzen zusammenhängenden Bereich. Praktisch gegen Bildunterschriften
-     oder Reste in der Vorlage.
+     Shift markiert den ganzen zusammenhängenden Bereich. Gelöschtes bleibt rot sichtbar,
+     ein Klick darauf holt es zurück. Praktisch gegen Bildunterschriften oder Reste in
+     der Vorlage.
 4. **Prüfen.** Die Regler unten rechts blenden Vorlage, Striche und dp-Raster ein und aus.
    **Vergleichen** stellt Strichgrafik und Vorlage nebeneinander.
 5. **Exportieren** oben rechts, als SVG oder als PNG in 512 bis 4096 px Breite.
