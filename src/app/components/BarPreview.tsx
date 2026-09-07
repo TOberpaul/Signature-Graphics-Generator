@@ -104,20 +104,27 @@ export function BarPreview({
    *   pointer had inside it, so it does not jump to the cursor.
    * - `from` / `to` drag one end, which is how a seam is lengthened or shortened.
    */
-  type SeamDrag =
-    | { index: number; mode: "draw"; anchorSlot: number }
-    | { index: number; mode: "move"; grabSlot: number }
-    | { index: number; mode: "from" }
-    | { index: number; mode: "to" }
-    /** Dragging the bottom edge, which makes the cut taller. */
-    | { index: number; mode: "height" }
-    /**
-     * Alt-dragging a copy. The original is left untouched and nothing is added to
-     * the list until the pointer is released - until then `preview` is drawn as a
-     * faint seam at the cursor, so the copy can be placed instead of appearing
-     * somewhere first and having to be moved from there.
-     */
-    | { mode: "copy"; grabSlot: number; preview: Seam };
+  /**
+   * The gesture in progress on a seam.
+   *
+   * Everything is worked out from `origin` plus the distance travelled since the
+   * grab, rather than from the seam's current value. That is what lets Alt be
+   * pressed and released mid-drag: the result only depends on where the pointer is
+   * now and what the seam looked like at the start, so switching behaviour part way
+   * through recomputes cleanly instead of accumulating whatever happened before.
+   *
+   * While Alt copies, `preview` holds the copy and the seam itself stays at
+   * `origin`. Nothing is added to the list until the pointer is released.
+   */
+  type SeamDrag = {
+    index: number;
+    mode: "draw" | "move" | "from" | "to" | "height";
+    /** The seam as it was when the gesture began. */
+    origin: Seam;
+    grabRow: number;
+    grabSlot: number;
+    preview?: Seam;
+  };
 
   const [drag, setDrag] = useState<SeamDrag | null>(null);
   /** Boxes of what a click would remove, while the delete tool is open. */
@@ -396,31 +403,31 @@ export function BarPreview({
 
     const existing = seamIndexAt(row, slot);
     if (existing >= 0) {
-      const grip = seamGrip(seams[existing], slot, row);
-
-      // Alt (Option) duplicates instead of moving, the usual gesture in drawing
-      // tools. The original stays where it is and the copy follows the pointer,
-      // keeping the range - a limited seam is tedious to draw twice by hand.
-      //
-      // Only on the body: on an end handle Alt means resizing symmetrically, which
-      // is the other half of the same convention.
-      if (event.altKey && grip === "move") {
-        setDrag({ mode: "copy", grabSlot: slot, preview: { ...seams[existing] } });
-        return;
-      }
-      setDrag(
-        grip === "move"
-          ? { index: existing, mode: "move", grabSlot: slot }
-          : { index: existing, mode: grip },
-      );
+      // Which handle was grabbed decides what Alt will mean: copying on the body,
+      // resizing about the centre on an end. Whether Alt is held is not read here -
+      // that is decided per movement, so it can be taken up or dropped mid-drag.
+      setDrag({
+        index: existing,
+        mode: seamGrip(seams[existing], slot, row),
+        origin: { ...seams[existing] },
+        grabRow: row,
+        grabSlot: slot,
+      });
       return;
     }
 
     // Starts as a full width seam. Dragging sideways narrows it down; releasing
     // without moving leaves it as it is, which keeps a plain click the shortest
     // path to the common case. Appended, so the index stays put while dragging.
-    onSeamsChange([...seams, { row }]);
-    setDrag({ index: seams.length, mode: "draw", anchorSlot: slot });
+    const fresh: Seam = { row };
+    onSeamsChange([...seams, fresh]);
+    setDrag({
+      index: seams.length,
+      mode: "draw",
+      origin: fresh,
+      grabRow: row,
+      grabSlot: slot,
+    });
   };
 
   const handleMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -431,45 +438,25 @@ export function BarPreview({
     setHoverSlot(slot);
 
     if (!drag || row === null) return;
-
-    // The copy only exists as a preview until the pointer is released, so this
-    // moves local state and leaves the seam list alone.
-    if (drag.mode === "copy") {
-      const { from, to } = seamRange(drag.preview);
-      const limited = drag.preview.from !== undefined || drag.preview.to !== undefined;
-      if (!limited) {
-        setDrag({ ...drag, preview: { row } });
-        return;
-      }
-
-      const width = to - from;
-      const shift = slot - drag.grabSlot;
-      const start = Math.min(Math.max(from + shift, 0), lastSlot - width);
-      setDrag({
-        ...drag,
-        grabSlot: slot,
-        preview: seamWithRange(drag.preview, row, start, start + width),
-      });
-      return;
-    }
-
-    const dragged = seams[drag.index];
-    if (!dragged) return;
+    if (!seams[drag.index]) return;
 
     const replace = (seam: Seam) =>
       onSeamsChange(seams.map((item, index) => (index === drag.index ? seam : item)));
 
+    const { origin } = drag;
+    const { from, to } = seamRange(origin);
+
     if (drag.mode === "draw") {
       // Sideways movement defines the range. One slot of travel counts as intent,
       // so a click that wobbles by a pixel still cuts the full width.
-      const spans = Math.abs(slot - drag.anchorSlot) >= 1;
+      const spans = Math.abs(slot - drag.grabSlot) >= 1;
       replace(
         spans
           ? seamWithRange(
-              dragged,
+              origin,
               row,
-              Math.min(drag.anchorSlot, slot),
-              Math.max(drag.anchorSlot, slot),
+              Math.min(drag.grabSlot, slot),
+              Math.max(drag.grabSlot, slot),
             )
           : { row },
       );
@@ -477,35 +464,27 @@ export function BarPreview({
     }
 
     if (drag.mode === "height") {
-      // Only the height changes here, the row stays put. Snapped to the legal gaps,
-      // so dragging cannot produce a 2 to 3 dp cut - the sizes the construction
-      // rules would treat as a mistake anyway.
-      const height = snapSeamHeight(row - dragged.row + 1);
-      if (height === seamHeight(dragged)) return;
-      replace(
-        height === 1
-          ? { ...dragged, height: undefined }
-          : { ...dragged, height },
-      );
+      // Only the height changes, the row stays put. Snapped to the legal gaps, so
+      // dragging cannot produce a 2 to 3 dp cut - the sizes the construction rules
+      // would treat as a mistake anyway.
+      const height = snapSeamHeight(row - origin.row + 1);
+      replace(height === 1 ? { ...origin, height: undefined } : { ...origin, height });
       return;
     }
 
-    const { from, to } = seamRange(dragged);
-
     if (drag.mode === "from" || drag.mode === "to") {
-      // Only the range changes here, the row stays where it is. Alt mirrors the
-      // change onto the other end, the usual shortcut for resizing about the
-      // centre; the two ends then move by the same amount in opposite directions.
+      // Only the range changes, the row stays where it is. Alt mirrors the change
+      // onto the other end - resizing about the centre - and the centre comes from
+      // the original, so it does not drift as the range changes.
       const fixed = drag.mode === "from" ? to : from;
-      const moving = slot;
 
       if (event.altKey) {
         const centre = (from + to) / 2;
-        const reach = Math.abs(moving - centre);
+        const reach = Math.abs(slot - centre);
         replace(
           seamWithRange(
-            dragged,
-            dragged.row,
+            origin,
+            origin.row,
             Math.round(centre - reach),
             Math.round(centre + reach),
           ),
@@ -515,33 +494,43 @@ export function BarPreview({
 
       // Dragging one end past the other flips them, so the seam cannot invert.
       replace(
-        seamWithRange(
-          dragged,
-          dragged.row,
-          Math.min(moving, fixed),
-          Math.max(moving, fixed),
-        ),
+        seamWithRange(origin, origin.row, Math.min(slot, fixed), Math.max(slot, fixed)),
       );
       return;
     }
 
-    // Move: the row follows the pointer and the range travels with it, keeping its
-    // length and height. Shifting is clamped rather than truncated, so pushing a
-    // seam against an edge slides it there instead of shortening it.
-    const limited = dragged.from !== undefined || dragged.to !== undefined;
+    // Move: the whole seam travels, keeping its length and height. Computed from the
+    // start of the gesture, so releasing Alt puts everything back exactly.
+    const limited = origin.from !== undefined || origin.to !== undefined;
+    const targetRow = origin.row + (row - drag.grabRow);
+    let target: Seam;
+
     if (!limited) {
-      if (row === dragged.row) return;
-      replace({ ...dragged, row });
+      target = { ...origin, row: Math.min(Math.max(targetRow, 0), geometry.rows - 1) };
+    } else {
+      const width = to - from;
+      // Clamped rather than truncated, so pushing a seam against an edge slides it
+      // there instead of shortening it.
+      const start = Math.min(Math.max(from + (slot - drag.grabSlot), 0), lastSlot - width);
+      target = seamWithRange(
+        origin,
+        Math.min(Math.max(targetRow, 0), geometry.rows - 1),
+        start,
+        start + width,
+      );
+    }
+
+    // Alt copies: the seam stays where it started and the copy follows the pointer.
+    // Checked here rather than at the press, so it can be taken up or dropped in the
+    // middle of a drag the way a drawing tool allows.
+    if (event.altKey) {
+      replace(origin);
+      setDrag({ ...drag, preview: target });
       return;
     }
 
-    const width = to - from;
-    const shift = slot - drag.grabSlot;
-    const start = Math.min(Math.max(from + shift, 0), lastSlot - width);
-    if (row === dragged.row && start === from) return;
-
-    replace(seamWithRange(dragged, row, start, start + width));
-    setDrag({ ...drag, grabSlot: slot });
+    replace(target);
+    if (drag.preview) setDrag({ ...drag, preview: undefined });
   };
 
   const endDrag = () => setDrag(null);
@@ -554,7 +543,7 @@ export function BarPreview({
    * special case here and simply changes nothing.
    */
   const handleUp = () => {
-    if (drag?.mode === "copy" && onSeamsChange) {
+    if (drag?.preview && onSeamsChange) {
       onSeamsChange([...seams, drag.preview]);
     }
     endDrag();
@@ -711,7 +700,7 @@ export function BarPreview({
         : null}
       {/* The copy while it is being placed: same width, drawn faint so the original
           underneath stays readable and it is clear this one is not committed yet. */}
-      {drag?.mode === "copy" ? (
+      {drag?.preview ? (
         <div
           className="bar-preview-seam bar-preview-seam-copy"
           aria-hidden="true"
