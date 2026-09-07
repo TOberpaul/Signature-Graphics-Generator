@@ -316,11 +316,15 @@ export function ImageTemplate({
         help="Macht die Grafik exakt symmetrisch. Nur bei Frontalansichten sinnvoll."
         disabled={disabled}
       >
+        {/* Same reason as the sliders: the tooltip describes the field wrapper, so
+            the control needs the reference itself. Left off while disabled, because
+            `Setting` does not render the tooltip then. */}
         <DBCheckbox
           label="Exakte Spiegelung"
           size="small"
           checked={mirrorOn}
           disabled={disabled}
+          ariaDescribedBy={disabled ? undefined : "mirror-help"}
           onChange={(event) => setMirrorOn(event.target.checked)}
         />
       </Setting>
@@ -337,6 +341,7 @@ export function ImageTemplate({
             variant="floating"
             showEmptyOption={false}
             value={mirrorHalf}
+            ariaDescribedBy="mirror-half-help"
             onChange={(event) => setMirrorHalf(event.target.value as MirrorMode)}
             options={[
               { value: "left", label: "linke Hälfte" },

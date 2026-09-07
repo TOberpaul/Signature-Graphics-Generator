@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DBButton,
   DBCard,
@@ -24,7 +24,7 @@ import { BarPreview } from "./BarPreview";
 import { ImageTemplate } from "./ImageTemplate";
 import { RangeInput } from "./Setting";
 import { useImageFile } from "./useImageFile";
-import { canvasSizeUnits, renderIllustration } from "@/lib/illustration/renderer";
+import { renderIllustration } from "@/lib/illustration/renderer";
 import { DP } from "@/lib/illustration/geometry";
 import type { ConversionResult } from "@/lib/illustration/result";
 import type { SegmentAnchor } from "@/lib/illustration/segments";
@@ -49,15 +49,6 @@ const ZOOM_STEP = 1.25;
 /** Zoom range, as a multiple of the canvas's natural size at PREVIEW_UNIT_SIZE. */
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;
-
-/**
- * The gap between the two canvases in compare view, in pixels.
- *
- * Mirrors `--db-spacing-fixed-md` from the stylesheet. Only used to work out how
- * much room each canvas has when fitting, so being a pixel out is harmless - it
- * cannot move anything, only change the fitted zoom by a fraction of a percent.
- */
-const COMPARE_GAP_PX = 16;
 
 function clampZoom(value: number): number {
   return Math.min(Math.max(value, MIN_ZOOM), MAX_ZOOM);
@@ -93,13 +84,11 @@ export function Generator() {
   // in a second next to it, so both can be judged against each other directly.
   const [compare, setCompare] = useState(false);
 
-  // Canvas zoom. `null` means "as large as the window allows", which is what it
-  // starts at and what the percentage button returns to; a number is a zoom the
-  // user dialled in. Keeping the two apart is what lets the graphic re-fit itself
-  // when the window changes size, right up until the zoom is touched by hand.
+  // Canvas zoom, as a multiple of the canvas's natural size. A template opens at
+  // 100 %, so a graphic is always first seen at one pixel per rendered unit rather
+  // than at whatever size the window happens to allow.
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [zoom, setZoom] = useState<number | null>(null);
-  const [fitZoom, setFitZoom] = useState(1);
+  const [zoom, setZoom] = useState(1);
 
   // Hand placed seams: rows of the drawable grid that are cut across every
   // stroke. Automatic detection cannot find a level on a soft shape like a dome,
@@ -176,49 +165,9 @@ export function Generator() {
   const [result, setResult] = useState<ConversionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // The canvas at its natural size, which is what the zoom is a multiple of. Taken
-  // from the canvas dimensions rather than by rendering, so it costs nothing.
-  const canvasPx = useMemo(() => {
-    if (!result) return null;
-    const { widthUnits, heightUnits } = canvasSizeUnits(result.illustration);
-    return {
-      width: widthUnits * PREVIEW_UNIT_SIZE,
-      height: heightUnits * PREVIEW_UNIT_SIZE,
-    };
-  }, [result]);
-
-  /** How many canvases share the window. Compare view puts two side by side. */
-  const canvasCount = compare && result?.overlay?.src ? 2 : 1;
-
-  // The zoom at which the graphic just fits the window. Recomputed whenever the
-  // window changes size, so collapsing the settings panel or resizing the browser
-  // keeps a fitted graphic fitted.
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport || !canvasPx) return;
-
-    const measure = () => {
-      const { clientWidth, clientHeight } = viewport;
-      if (clientWidth === 0 || clientHeight === 0) return;
-      const room = clientWidth - COMPARE_GAP_PX * (canvasCount - 1);
-      setFitZoom(
-        clampZoom(
-          Math.min(room / canvasCount / canvasPx.width, clientHeight / canvasPx.height),
-        ),
-      );
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
-    return () => observer.disconnect();
-  }, [canvasPx, canvasCount]);
-
-  const effectiveZoom = zoom ?? fitZoom;
-
   const zoomBy = useCallback(
-    (factor: number) => setZoom(clampZoom(effectiveZoom * factor)),
-    [effectiveZoom],
+    (factor: number) => setZoom((current) => clampZoom(current * factor)),
+    [],
   );
 
   // Ctrl/Cmd plus the wheel zooms the canvas instead of the page, which is also
@@ -234,12 +183,12 @@ export function Generator() {
       event.preventDefault();
       // Exponential, so the same wheel movement changes the zoom by the same ratio
       // at every level - a linear step crawls when zoomed in and jumps when out.
-      setZoom((current) => clampZoom((current ?? fitZoom) * Math.exp(-event.deltaY / 200)));
+      setZoom((current) => clampZoom(current * Math.exp(-event.deltaY / 200)));
     };
 
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
-  }, [fitZoom]);
+  }, []);
 
   // A name the user has set by hand, overriding the one derived from the file.
   // Drives both the title and the export file name. Reset when the template goes.
@@ -293,9 +242,9 @@ export function Generator() {
     setDrawTool(false);
     setCustomName(null);
     setError(null);
-    // Back to fitted: a zoom dialled in for one motif says nothing about the next,
+    // Back to 100 %: a zoom dialled in for one motif says nothing about the next,
     // and a new template can have a different format entirely.
-    setZoom(null);
+    setZoom(1);
     setTemplateGeneration((generation) => generation + 1);
   }, []);
 
@@ -703,7 +652,7 @@ export function Generator() {
                   <BarPreview
                     illustration={result.illustration}
                     unitSize={PREVIEW_UNIT_SIZE}
-                    scale={effectiveZoom}
+                    scale={zoom}
                     foreground={colour}
                     overlay={result.overlay}
                     overlayOpacity={overlayOpacity}
@@ -728,7 +677,7 @@ export function Generator() {
                     <BarPreview
                       illustration={result.illustration}
                       unitSize={PREVIEW_UNIT_SIZE}
-                      scale={effectiveZoom}
+                      scale={zoom}
                       foreground={colour}
                       overlay={result.overlay}
                       overlayOpacity={1}
@@ -799,23 +748,23 @@ export function Generator() {
                   <IconAction
                     icon="minus"
                     label="Verkleinern"
-                    disabled={effectiveZoom <= MIN_ZOOM}
+                    disabled={zoom <= MIN_ZOOM}
                     onClick={() => zoomBy(1 / ZOOM_STEP)}
                   />
                   <DBButton
                     type="button"
                     variant="ghost"
                     size="medium"
-                    disabled={effectiveZoom === 1}
+                    disabled={zoom === 1}
                     onClick={() => setZoom(1)}
                   >
-                    {Math.round(effectiveZoom * 100)} %
+                    {Math.round(zoom * 100)} %
                     <DBTooltip placement="top">Auf 100 % zoomen</DBTooltip>
                   </DBButton>
                   <IconAction
                     icon="plus"
                     label="Vergrößern"
-                    disabled={effectiveZoom >= MAX_ZOOM}
+                    disabled={zoom >= MAX_ZOOM}
                     onClick={() => zoomBy(ZOOM_STEP)}
                   />
                 </div>
@@ -845,10 +794,14 @@ export function Generator() {
               {/* Two ways in, side by side: bring your own template, or see what the
                   tool does without having to find a suitable image first. */}
               <DBStack className="empty-actions" direction="row" gap="small">
+                {/* The hint below is about which image to bring, so it describes
+                    this button rather than the demo next to it. `aria-*` props are
+                    passed straight through to the button element. */}
                 <DBButton
                   type="button"
                   variant="brand"
                   icon="upload"
+                  aria-describedby="pick-image-help"
                   onClick={file.open}
                 >
                   Bild auswählen
@@ -857,7 +810,7 @@ export function Generator() {
                   Demo laden
                 </DBButton>
               </DBStack>
-              <DBInfotext semantic="adaptive" showIcon={false}>
+              <DBInfotext id="pick-image-help" semantic="adaptive" showIcon={false}>
                 Am besten eine schwarze Silhouette auf weißem Hintergrund.
               </DBInfotext>
             </DBStack>
@@ -933,14 +886,26 @@ export function Generator() {
           }}
         >
           <DBStack gap="medium">
+            {/* `ariaDescribedBy` is the documented way to override the automatic
+                handling, and it replaces the ids DBInput would generate itself. That
+                is safe here only because this field has no message, validMessage or
+                invalidMessage - there is nothing to replace. Adding one of those
+                later means folding its id in here too, otherwise the validation text
+                silently loses its association. */}
             <DBInput
               label="Name der Grafik"
               variant="floating"
               value={nameDraft}
               autoFocus
+              ariaDescribedBy="graphic-name-help"
               onChange={(event) => setNameDraft(event.target.value)}
             />
-            <DBInfotext semantic="adaptive" size="small" showIcon={false}>
+            <DBInfotext
+              id="graphic-name-help"
+              semantic="adaptive"
+              size="small"
+              showIcon={false}
+            >
               Wird oben angezeigt und beim Export als Dateiname verwendet.
             </DBInfotext>
           </DBStack>

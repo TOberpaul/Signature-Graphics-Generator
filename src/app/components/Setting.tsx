@@ -63,6 +63,7 @@ export function Setting({
  */
 export function RangeInput({
   id,
+  describedBy,
   value,
   min,
   max,
@@ -71,6 +72,14 @@ export function RangeInput({
   onChange,
 }: {
   id?: string;
+  /**
+   * Id of the element describing this slider, for `aria-describedby`.
+   *
+   * Has to be passed in: DBTooltip attaches its `aria-describedby` to its own
+   * parent, which for a {@link Setting} is the wrapping field rather than the
+   * control - so without this the help text never reaches the slider itself.
+   */
+  describedBy?: string;
   value: number;
   min: number;
   max: number;
@@ -90,6 +99,7 @@ export function RangeInput({
       step={step}
       value={value}
       disabled={disabled}
+      aria-describedby={describedBy}
       onChange={(event) => onChange(Number(event.target.value))}
       style={{ "--range-fill": `${fill}%` } as CSSProperties}
     />
@@ -129,8 +139,12 @@ export function RangeSetting({
       <label className="field-label" data-font-size="sm" htmlFor={id}>
         {label}
       </label>
+      {/* Only while the tooltip is actually rendered - `Setting` leaves it out on a
+          disabled field, and pointing at an id that does not exist is worse than
+          pointing at nothing. */}
       <RangeInput
         id={id}
+        describedBy={disabled ? undefined : `${id}-help`}
         min={min}
         max={max}
         step={step}
