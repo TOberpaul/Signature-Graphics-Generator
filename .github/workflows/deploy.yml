@@ -24,9 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The runtime version lives in .nvmrc, so CI and local development read it
+      # from the same place instead of a number here that drifts out of step.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       # The postinstall script of @db-ux/db-theme decrypts the licensed DB brand
