@@ -173,7 +173,7 @@ export function ImageTemplate({
     );
 
     if (illustration.bars.length === 0) {
-      onError("Aus diesem Bild entsteht keine Form. Schwellwert niedriger stellen.");
+      onError("Aus dieser Vorlage entsteht keine Form. Schwellwert niedriger stellen.");
       return;
     }
 

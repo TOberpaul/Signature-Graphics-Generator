@@ -43,6 +43,29 @@ const PREVIEW_UNIT_SIZE = 3;
 /** Target widths in pixels for the raster export. */
 const EXPORT_WIDTHS = [512, 1024, 2048, 4096];
 
+/**
+ * Added to a template search, so the results are the kind of image that converts.
+ *
+ * Each word earns its place: `silhouette` gets a filled shape rather than an
+ * outline, `clipart` and `flat` push photographs and 3D renders down the results,
+ * and `black on white` is the contrast the threshold works best on. Without them a
+ * plain search returns mostly photos, which are the hardest case for the converter.
+ *
+ * The search opens in a new tab rather than being fetched: reading the pixels of a
+ * third party image needs permissive CORS headers, which image hosts do not send,
+ * and every API that returns results needs a key this static app cannot keep
+ * secret. Handing the query to Google and letting the file arrive through the
+ * normal picker avoids both, and leaves the licence decision with the user.
+ */
+const SEARCH_KEYWORDS = "silhouette clipart flat black on white";
+
+/** Google Images for a template, with the keywords that make results usable. */
+function templateSearchUrl(term: string): string {
+  const query = encodeURIComponent(`${term.trim()} ${SEARCH_KEYWORDS}`);
+  // `tbm=isch` is the image tab.
+  return `https://www.google.com/search?q=${query}&tbm=isch`;
+}
+
 /** How far one press of the zoom buttons takes it. */
 const ZOOM_STEP = 1.25;
 
@@ -174,6 +197,12 @@ export function Generator() {
   // how a trackpad pinch arrives. Registered by hand because React attaches wheel
   // listeners passively, and `preventDefault` does nothing on a passive listener -
   // the browser would zoom the whole page alongside.
+  //
+  // Keyed on whether there is a result, because that is when the viewport exists:
+  // with no dependency the effect ran once on mount, found the ref still empty and
+  // never came back, so the listener was never attached at all.
+  const hasResult = result !== null;
+
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -188,13 +217,24 @@ export function Generator() {
 
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [hasResult]);
 
   // A name the user has set by hand, overriding the one derived from the file.
   // Drives both the title and the export file name. Reset when the template goes.
   const [customName, setCustomName] = useState<string | null>(null);
   const [nameOpen, setNameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+
+  // Template search. Only the term is ours to keep; the results live in a new tab,
+  // and the chosen file comes back through the normal picker.
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const openSearch = useCallback(() => {
+    const term = searchTerm.trim();
+    if (term.length === 0) return;
+    // `noopener` and `noreferrer`: the new tab gets no handle back onto this one.
+    window.open(templateSearchUrl(term), "_blank", "noopener,noreferrer");
+  }, [searchTerm]);
 
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("png");
@@ -427,7 +467,7 @@ export function Generator() {
               settings shows it, since the tooltip anchors to this container. */}
           {!hasImage ? (
             <DBTooltip placement="right">
-              Erst ein Bild auswählen, dann sind die Einstellungen verfügbar.
+              Erst eine Vorlage auswählen, dann sind die Einstellungen verfügbar.
             </DBTooltip>
           ) : null}
 
@@ -439,7 +479,7 @@ export function Generator() {
                 their own explanation instead of all repeating this. */}
             {!hasImage ? (
               <DBInfotext semantic="informational" size="small">
-                Zuerst ein Bild auswählen.
+                Zuerst eine Vorlage auswählen.
               </DBInfotext>
             ) : null}
 
@@ -789,30 +829,93 @@ export function Generator() {
           </div>
         ) : (
           <div className="preview-empty">
-            <DBStack gap="large" alignment="center">
+            <DBStack className="empty-stack" gap="large" alignment="center">
               <DBIcon className="preview-empty-icon" icon="image" weight="64" />
-              {/* Two ways in, side by side: bring your own template, or see what the
-                  tool does without having to find a suitable image first. */}
-              <DBStack className="empty-actions" direction="row" gap="small">
-                {/* The hint below is about which image to bring, so it describes
-                    this button rather than the demo next to it. `aria-*` props are
-                    passed straight through to the button element. */}
-                <DBButton
-                  type="button"
-                  variant="brand"
-                  icon="upload"
-                  aria-describedby="pick-image-help"
-                  onClick={file.open}
-                >
-                  Bild auswählen
-                </DBButton>
-                <DBButton type="button" variant="filled" icon="image" onClick={loadDemo}>
-                  Demo laden
-                </DBButton>
-              </DBStack>
-              <DBInfotext id="pick-image-help" semantic="adaptive" showIcon={false}>
-                Am besten eine schwarze Silhouette auf weißem Hintergrund.
+
+              {/* Sits above the actions as a description of them, not below as an
+                  afterthought. Says what to do; what makes a good template is the
+                  search field's job further down and the README's. */}
+              <DBInfotext id="pick-template-help" semantic="adaptive" showIcon={false}>
+                Teste die Demo oder wähle eine eigene Vorlage.
               </DBInfotext>
+
+              {/* The two ways in, grouped: pick or demo on one row, search on the
+                  next. Grouped so the two rows sit at the same spacing as the
+                  buttons within a row, while the description above keeps the
+                  larger gap of the outer stack. */}
+              <div className="empty-entry">
+                {/* Two ways in, side by side: bring your own template, or see what
+                    the tool does without having to find a suitable image first. */}
+                <DBStack className="empty-actions" direction="row" gap="small">
+                  {/* The description above applies to this button, so it is
+                      referenced here. `aria-*` props are passed straight through to
+                      the button element. */}
+                  <DBButton
+                    type="button"
+                    variant="brand"
+                    icon="upload"
+                    aria-describedby="pick-template-help"
+                    onClick={file.open}
+                  >
+                    Vorlage auswählen
+                  </DBButton>
+                  <DBButton
+                    type="button"
+                    variant="filled"
+                    icon="image"
+                    onClick={loadDemo}
+                  >
+                    Demo laden
+                  </DBButton>
+                </DBStack>
+
+                {/* No template to hand: search for one. A form, so Enter submits.
+                    The results open in a new tab and the file comes back through the
+                    picker above - see SEARCH_KEYWORDS for why it works this way.
+
+                    No icon on the button: `type="search"` already draws a magnifier
+                    inside the field, and a second one reads as a mistake. */}
+                <form
+                  className="template-search"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    openSearch();
+                  }}
+                >
+                  {/* `required` rather than a disabled button: submitting an empty
+                      field asks for it natively, which is feedback where a dead
+                      button gives none. The browser blocks the submit, so the form's
+                      own handler never runs. The asterisk is off - there is one field
+                      here, and nothing to complete. */}
+                  <DBInput
+                    label="Vorlage suchen"
+                    variant="floating"
+                    type="search"
+                    placeholder="z. B. Fernsehturm Berlin"
+                    value={searchTerm}
+                    required
+                    showRequiredAsterisk={false}
+                    // Suppresses the browser's own validation bubble, which is drawn
+                    // by the browser and looks nothing like the design system. The
+                    // validation itself stays: the submit is still blocked, the field
+                    // still matches `:user-invalid`, and DB's own red message below
+                    // the field is the one that shows.
+                    onInvalid={(event) => event.preventDefault()}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                  />
+                  {/* The tooltip can live on the submit button because it is never
+                      disabled - `required` covers the empty case instead. A disabled
+                      button receives no mouse events, so a tooltip on one can never
+                      close again once shown. */}
+                  <DBButton type="submit" variant="filled">
+                    Suchen
+                    <DBTooltip placement="top">
+                      Öffnet die Bildersuche in einem neuen Tab. Bild herunterladen,
+                      dann oben auswählen.
+                    </DBTooltip>
+                  </DBButton>
+                </form>
+              </div>
             </DBStack>
           </div>
         )}

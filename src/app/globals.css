@@ -562,6 +562,42 @@ body {
   justify-content: center;
 }
 
+/* Search field and its button on one line, the field taking the space. It fills the
+   width the empty state sets, so its edges line up with the text above and below
+   instead of floating at its own width. */
+.template-search {
+  display: flex;
+  flex-direction: row;
+  /* Flush at the top, not the bottom. The floating label sits inside the field, so
+     the field's top edge is the input's top edge - and anything the field grows
+     underneath it, a validation message for instance, then cannot drag the buttons
+     out of line. */
+  align-items: start;
+  /* The same gap the button row above uses: DBStack's `gap="small"` resolves to
+     `--db-spacing-fixed-sm`, so the two rows keep one rhythm. */
+  gap: var(--db-spacing-fixed-sm);
+  inline-size: 100%;
+  text-align: start;
+}
+
+/* The field gives up whatever the button needs. Both the wrapper and the input
+   itself have to be allowed below their intrinsic width, otherwise a text input's
+   default size keeps the row wider than the buttons above it. */
+.template-search > .db-input {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.template-search > .db-input input {
+  min-inline-size: 0;
+}
+
+.template-search > .db-button {
+  flex: 0 0 auto;
+}
+
+
+
 .preview-empty {
   display: grid;
   place-content: center;
@@ -570,6 +606,34 @@ body {
   min-block-size: 0;
   padding: var(--db-spacing-fixed-md);
   text-align: center;
+}
+
+/* The block is exactly as wide as its widest part, which is the row of two entry
+   buttons. `fit-content` is what makes that measurable: the buttons size to their
+   labels, the stack takes that width, and the search row below stretches into it -
+   so the two rows share an edge instead of each floating at its own width. */
+.empty-stack {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  block-size: auto;
+  overflow: visible;
+}
+
+/* The two entry rows as one group, so the gap between them is the same spacing the
+   buttons use within their row. The description above keeps the outer stack's larger
+   gap, which is what separates "what to do" from "how to do it". */
+.empty-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-spacing-fixed-sm);
+  inline-size: fit-content;
+  max-inline-size: 100%;
+}
+
+/* Stretch rather than a percentage: the group's width comes from its content - the
+   button row - and a percentage against that would be circular. */
+.empty-entry > .template-search {
+  align-self: stretch;
 }
 
 .preview-data {

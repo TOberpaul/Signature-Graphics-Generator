@@ -10,8 +10,9 @@ deinen Rechner nicht.
 
 ## Benutzen
 
-1. **Bild auswählen.** Am besten eine flache, schwarze Silhouette auf weißem Grund.
-   PNG, JPG, WebP oder SVG.
+1. **Vorlage auswählen.** Am besten eine flache, schwarze Silhouette auf weißem Grund.
+   PNG, JPG, WebP oder SVG. Keine zur Hand? Das Suchfeld darunter öffnet die
+   Google-Bildersuche, ergänzt um Begriffe wie „Silhouette“ und „Clipart“.
 2. **Einstellungen anpassen**, links im Panel:
    - **Schwellwert** – ab welcher Flächendeckung eine Rasterzelle zum Strich wird.
      Niedrig lässt die Form wachsen, hoch lässt sie schrumpfen.
@@ -56,3 +57,18 @@ werden verworfen.
 
 Das DB Icon Set ist die zuverlässigste Quelle. Für Motive außerhalb davon eignet sich ein
 Bildwerkzeug wie Firefly.
+
+## Zur Herkunft der Vorlage
+
+Die Vorlage wird nicht übernommen, sondern ausgemessen: der Konverter liest nur Fläche und
+Ausdehnung Spalte für Spalte und verwirft Farbe, Textur, Schattierung und alles, was
+schmaler als eine Strichbreite ist. Was herauskommt, erzeugt ein festes Regelwerk.
+
+Für die Praxis heißt das: bei einem **Foto** eines Bauwerks ist die schöpferische Leistung
+die Fotografie, nicht die Form des Gebäudes – davon bleibt hier nichts übrig. Bei einem
+**gestalteten Clipart oder Icon** ist die Silhouette selbst die Gestaltung, und wenn eine
+charakteristische Form erkennbar durchkommt, sieht es anders aus. Im Zweifel eine eigene
+Vorlage erzeugen, etwa mit Firefly.
+
+Das ist keine Rechtsauskunft. Für den verbindlichen Rahmen gilt, was Justiz und
+Markenführung vorgeben.
