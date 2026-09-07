@@ -547,12 +547,14 @@ export function Generator() {
               ) : null}
 
               <div className="tool-row">
+                {/* No icon, like the other two tool toggles. `eraser` reserved space
+                    in the button without drawing a glyph, which pushed the centred
+                    label off to the right. */}
                 <DBButton
                   type="button"
                   variant="filled"
                   size="medium"
                   width="full"
-                  icon="eraser"
                   aria-pressed={deleteTool}
                   disabled={!result}
                   onClick={() => {
