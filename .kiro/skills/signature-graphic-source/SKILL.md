@@ -100,18 +100,75 @@ can be copied in one go. Generative fields only:
 For when someone just wants a template to keep, rather than a prompt written for
 one specific motif. Everything that does not depend on the subject is already
 settled, so the only thing left to do is replace `[OBJECT]` with the motif in one
-to three words. It measures **1256 characters** with the placeholder still in.
+to three words. It measures **1397 characters** with the placeholder still in.
 
 ```json
 {
-  "subject": "[OBJECT], one single object, seen straight on at eye level from its most recognisable side: the main entrance facade for buildings, gates and towers, the full side profile for vehicles, animals and tools, upright from the front for plants, bottles and fruit",
-  "style": "flat 2D black and white clipart, silhouette in solid pure black on a pure white background, exactly two tones and no other colour anywhere",
-  "composition": "orthographic elevation, all verticals strictly parallel and upright, centered, full object visible with a small even margin",
-  "form": "bold simplified massing, few large parts, outline closed and all parts touching, masts spires and thin tips drawn solid and thickened",
-  "edges": "crisp thin white lines across the full width at every structural boundary such as a plinth, ground line, floor division, deck, cornice or roof edge; openings and inner separations cut out in white",
-  "exclude": "colour, tinted roofs or domes, gradients, shading, texture, photographic lighting, rear view, three-quarter or angled view, perspective, converging verticals, low or high camera angle, 3D, outline stroke, text, watermark, drop shadow, background elements, stripes or line patterns, fine ornament, extra props"
+  "subject": "[OBJECT], one single isolated object and nothing else in the image; the main entrance facade for buildings and towers, the full side profile for vehicles, animals and tools, straight from the front for everything else",
+  "style": "flat 2D black and white clipart, silhouette in solid pure black on a pure white background, exactly two tones, hard edges only, no grey and no other colour anywhere",
+  "composition": "flat technical elevation, only the side turned toward the viewer is drawn and nothing behind it, all verticals strictly parallel and upright, mirror symmetric if the object is symmetric, centered with a small even margin",
+  "form": "bold simplified massing, few large parts, outline closed and all parts touching, masts spires and thin tips solid and thickened",
+  "edges": "crisp thin white lines across the full width at every structural boundary such as a plinth, ground line, floor division, deck, cornice or roof edge; openings, lenses and inner separations cut out in white",
+  "exclude": "person, head, hands, worn or held, skyline, other buildings, ground plane, colour, grey, gradients, shading, highlights, reflections, glow, soft edges, texture, product photo, rear or three-quarter view, arms angled toward the viewer, perspective, foreshortening, depth, 3D, outline stroke, text, watermark, drop shadow, background elements, stripes, fine ornament"
 }
 ```
+
+### "Elevation", not "front view"
+
+Asking for a front view gets a **product shot**: the object turned a few degrees,
+its arms or handles opened toward the viewer, a highlight on every glossy face. That
+is perspective by construction, and no amount of `no perspective` in the exclusions
+undoes it, because the model is not drawing a view - it is drawing a photograph.
+
+Sunglasses were the case that made this obvious. Every attempt came back angled with
+the temples splayed toward the camera and diagonal glare across the lenses. What is
+wanted is a flat elevation: the front of the frame only, the temples hidden behind
+it, the lenses as white cut outs.
+
+Three phrases do the work, and they belong in `composition` where they describe the
+drawing rather than the subject:
+
+- **`flat technical elevation`** - the noun that means a drawing, not a photograph.
+- **`only the side turned toward the viewer is drawn and nothing behind it`** - the
+  general form of "no temples", "no far side of the car", "no rear wing of the
+  building". This is the phrase that removes depth.
+- **`mirror symmetric if the object is symmetric`** - a front elevation of a
+  symmetric object *is* symmetric, and saying so kills any residual rotation. It
+  also happens to make the app's mirroring setting usable on the result.
+
+`product photo`, `highlights`, `reflections`, `foreshortening` and `depth` back this
+up from the exclusion side, but the positive statement is what carries it.
+
+### Isolation has to be spelled out
+
+Two failures in testing came from the same cause, and it is the one worth
+remembering: **the model gives the object a context unless told not to.**
+
+- **Sunglasses came back on a head.** Wearables default to being worn - so do
+  watches, hats, helmets and shoes. The result was a large black blob with the
+  glasses on top of it.
+- **A television tower came back with a city skyline behind it**, and on a second
+  attempt with a base building drawn in perspective and a soft grey shadow under
+  the sphere. Landmarks default to standing in their surroundings.
+
+`background elements` and `extra props` were already in the exclusions and did not
+carry it. Abstract wording loses to the model's defaults; concrete nouns win. Hence
+`person, face, head, hands, worn or held, skyline, other buildings, ground plane`,
+plus **"one single isolated object and nothing else in the image"** stated in the
+positive, where it counts for more than any exclusion.
+
+The same test produced grey where `drop shadow` was already excluded, so `style` now
+says `hard edges only` and `no grey`, and `soft edges` and `glow` are named. A tone
+that is neither black nor white makes the converter's threshold arbitrary.
+
+### Motifs that will stay narrow
+
+A needle-shaped subject - a television tower, a mast, an obelisk - is legitimate but
+gets few strokes: the converter reads one stroke per column, so a thin shaft is two
+or three strokes no matter how tall it is, and only the wider parts carry any shape.
+The app picks the portrait format automatically, which helps. Do not fix this by
+letting a skyline or a base building back in for width; that is what broke it in the
+first place.
 
 ### Why the view is phrased the way it is
 
@@ -175,6 +232,8 @@ Work through this every time. If any line fails, fix it and count again.
 - [ ] Style field names flat, vector, solid pure black, pure white
 - [ ] White separator lines requested wherever the object has a structural edge
 - [ ] Exclusions include stripes and line patterns
+- [ ] Isolation stated in the positive, and no wearer, scenery or skyline possible
+- [ ] Asked for an **elevation**, with nothing behind the front face drawn
 - [ ] View named explicitly
 - [ ] Metadata sits outside the block
 
@@ -189,3 +248,10 @@ Work through this every time. If any line fails, fix it and count again.
 | Motif tiny in the format       | large empty margin, or a stray speck      |
 | Unreadable mush                | too much ornament for 23 strokes          |
 | Firefly truncates the input    | metadata left inside the payload          |
+| Big blob behind the object     | wearable drawn worn; isolation not stated |
+| Ragged band across the motif   | skyline or scenery behind the subject     |
+| Soft smudge under the shape    | grey survived; needs `no grey` and `hard edges only` |
+| Shaft only two strokes wide    | needle shaped motif; inherent, not a fault |
+| Object turned a few degrees    | asked for a front view, so got a product shot |
+| Diagonal streaks across a face | specular highlights; needs `highlights`, `reflections` |
+| Arms or handles fanning out    | depth not excluded; needs the elevation wording |
