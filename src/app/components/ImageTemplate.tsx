@@ -15,6 +15,8 @@ import {
   SEGMENT_PICK_TOLERANCE_DP,
 } from "@/lib/illustration/segments";
 import type { SegmentAnchor } from "@/lib/illustration/segments";
+import { addStrokes } from "@/lib/illustration/strokes";
+import type { AddedStroke } from "@/lib/illustration/strokes";
 import type { ImageFile } from "./useImageFile";
 import { RangeSetting, Setting } from "./Setting";
 
@@ -26,6 +28,8 @@ type Props = {
   manualSeams?: Seam[];
   /** Points at connected parts the user removed by hand in the preview. */
   removedParts?: SegmentAnchor[];
+  /** Strokes drawn by hand in the preview, as slots on the drawable grid. */
+  addedStrokes?: AddedStroke[];
   /** Start values for the controls, for a template that comes with a preset. */
   initial?: TemplateSettings;
   onResult: (result: ConversionResult) => void;
@@ -115,6 +119,7 @@ export function ImageTemplate({
   allowExtendedFormat,
   manualSeams,
   removedParts,
+  addedStrokes,
   initial,
   onResult,
   onError,
@@ -181,12 +186,17 @@ export function ImageTemplate({
       SEGMENT_PICK_TOLERANCE_DP,
     );
 
-    if (pruned.illustration.bars.length === 0) {
+    // Additions come after removals, so a stroke drawn by hand always survives.
+    // Both tools can point at the same place, and "what I drew stays" is the only
+    // one of the two orders that behaves predictably.
+    const drawn = addStrokes(pruned.illustration, addedStrokes ?? []);
+
+    if (drawn.bars.length === 0) {
       onError("Es sind keine Striche übrig. Letzte Löschung zurücknehmen.");
       return;
     }
 
-    const validation = validateIllustration(pruned.illustration);
+    const validation = validateIllustration(drawn);
     if (!validation.ok) {
       // The validation message names bars and segments, which means nothing to
       // someone using the tool. Logged for us, plain wording for them.
@@ -245,6 +255,7 @@ export function ImageTemplate({
     edgeTolerance,
     manualSeams,
     removedParts,
+    addedStrokes,
     fileName,
   ]);
 

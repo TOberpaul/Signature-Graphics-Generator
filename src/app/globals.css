@@ -144,14 +144,6 @@ body {
   padding: var(--db-spacing-fixed-md);
 }
 
-/* The actions DBStack sits in the stage flow next to the graphic. It must take
-   only the height of its buttons, not stretch to fill, so the pair stays centred
-   as one block. */
-.preview-stage .db-stack {
-  block-size: auto;
-  flex: 0 0 auto;
-}
-
 /* Facts about the graphic on the left, the toolbar on the right. `align-items:
    end` keeps both on the baseline of the row even when the meta text wraps. */
 .preview-foot {
@@ -271,53 +263,67 @@ body {
   min-inline-size: 0;
 }
 
+/* Pushed to the far end of the title row, and never shrunk - a long name
+   truncates instead, which is what `.preview-title` is set up for. */
+.preview-replace {
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+}
+
 /* No own surface: the stage sits directly on the level 2 content background so
-   the preview reads as one area instead of a nested card. The graphic and its
-   actions are centred together as one block, so the buttons sit right under the
-   canvas and the free space ends up around the pair, not between them. */
+   the preview reads as one area instead of a nested card. It holds nothing but the
+   canvas window now - the actions moved to the toolbar, because a button under the
+   canvas would scroll away with it once the graphic is zoomed past the window. */
 .preview-stage {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--db-spacing-fixed-md);
   min-block-size: 0;
+  overflow: hidden;
+}
+
+/* The window onto the canvas. Scrolling lives here rather than on the stage, so a
+   zoomed graphic scrolls while the actions underneath stay put. */
+.preview-viewport {
+  flex: 1;
+  inline-size: 100%;
+  min-block-size: 0;
+  min-inline-size: 0;
   overflow: auto;
+  display: flex;
 }
 
-/* The graphic takes the height that is left after the actions, so a tall motif
-   shrinks to fit instead of pushing the buttons out of the stage. */
-.preview-stage .bar-preview {
-  min-block-size: 0;
+/* `margin: auto` rather than centring on the container: it centres the graphic
+   while it is smaller than the window, and once it is larger it still allows
+   scrolling all the way to the top left. Flex centring pins the overflow on both
+   sides and makes that corner unreachable. It also stops the cross axis stretch,
+   so the canvas keeps the height its aspect ratio gives it.
+
+   Both flex items are named explicitly rather than using `> *`. `.preview-single`
+   is `display: contents`, so it is the DOM child a child selector matches, while
+   the flex item is the `.bar-preview` inside it - and a `display: contents`
+   element generates no box for a margin to apply to. */
+.preview-viewport > .preview-compare,
+.preview-single > .bar-preview {
+  margin: auto;
+  flex: 0 0 auto;
 }
 
-/* Single canvas: just pass the stage sizing straight through to the graphic. */
+/* Single canvas: the graphic itself becomes the flex item of the window. */
 .preview-single {
   display: contents;
 }
 
-/* Compare view: strokes and template side by side. The row sizes to its content
-   and may shrink, but never grows - otherwise it would fill the stage and push
-   the actions underneath it away from the canvases. */
+/* Compare view: strokes and template side by side. Both canvases carry their own
+   explicit size from the zoom, so the row only has to lay them out. */
 .preview-compare {
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: center;
   gap: var(--db-spacing-fixed-md);
-  flex: 0 1 auto;
-  min-block-size: 0;
-  min-inline-size: 0;
-  max-inline-size: 100%;
 }
 
-/* Both canvases shrink from their intrinsic size rather than forcing the row
-   wider than the stage. */
 .preview-compare > .bar-preview {
-  flex: 0 1 auto;
-  min-block-size: 0;
-  min-inline-size: 0;
-  max-block-size: 100%;
+  flex: 0 0 auto;
 }
 
 /* The compare toggle sits at the far end of the toolbar row. */
@@ -327,24 +333,19 @@ body {
 
 .preview-stage svg {
   display: block;
-  max-inline-size: 100%;
-  max-block-size: 100%;
-  block-size: auto;
 }
 
 /* The graphic and its overlays share one grid cell, so they always cover the
-   exact same box. The wrapper keeps the graphic's aspect ratio (set inline) and
-   is constrained to the stage, so width and height scale together - a tall motif
-   no longer leaves the wrapper wider than the graphic, which is what pushed the
-   overlays outside the canvas. */
+   exact same box. Width comes in inline - the canvas's natural size times the
+   zoom - and the aspect ratio (also inline) gives the height, so the two always
+   scale together and the overlays stay on the graphic.
+
+   Deliberately not clamped to the window: exceeding it is what zooming in means,
+   and `.preview-viewport` scrolls. */
 .bar-preview {
   position: relative;
   display: grid;
   grid-template: 1fr / 1fr;
-  max-inline-size: 100%;
-  max-block-size: 100%;
-  min-block-size: 0;
-  min-inline-size: 0;
   /* The white ground lives here, not in the graphic, so the template shows
      through the transparent strokes without the canvas ever losing its
      background. */
@@ -412,6 +413,29 @@ body {
   cursor: ns-resize;
 }
 
+/* Draw tool cursors, mirroring the seam tool: crosshair over empty canvas where a
+   press draws a stroke, grab over an existing one, and the vertical resize cursor
+   over its ends where dragging changes the length. */
+.bar-preview[data-draw-tool="true"] {
+  cursor: crosshair;
+}
+
+.bar-preview[data-draw-tool="grab"] {
+  cursor: grab;
+}
+
+.bar-preview[data-draw-tool="dragging"] {
+  cursor: grabbing;
+}
+
+.bar-preview[data-draw-tool="resize-height"] {
+  cursor: ns-resize;
+}
+
+.bar-preview[data-draw-tool] {
+  user-select: none;
+}
+
 /* Delete tool: a crosshair over the canvas, the pointer once a part is actually
    under the cursor and a click would remove something. */
 .bar-preview[data-delete-tool="true"] {
@@ -432,19 +456,17 @@ body {
 .bar-preview-removed {
   position: absolute;
   z-index: 4;
-  background: var(--db-critical-origin-default);
-  opacity: 0.4;
+  background: var(--db-brand-origin-default);
   pointer-events: none;
 }
 
 /* What a click would remove: one box per affected stroke, above the graphic and
-   the grid so it stays readable on a dense motif. Opaque enough that a single
-   2 dp stroke still reads as marked. */
+   the grid so it stays readable on a dense motif. Solid brand red like the other
+   marks - a stroke has to read as marked even when it is only 2 dp wide. */
 .bar-preview-part {
   position: absolute;
   z-index: 4;
-  background: var(--db-informational-on-bg-basic-emphasis-70-default, #0087b9);
-  opacity: 0.75;
+  background: var(--db-brand-origin-default);
   pointer-events: none;
 }
 
@@ -453,13 +475,42 @@ body {
   user-select: none;
 }
 
+/* Marker for a stroke drawn by hand, covering it completely so it reads as red
+   rather than as a tint over black. A stroke is 2 dp wide, and at that size a
+   semi transparent fill just muddies the colour instead of marking anything.
+   Slot, row and length are set inline.
+
+   Brand red, the same as every other editing mark: a mark belongs to the tool,
+   not to the graphic, so they all share one colour. Critical red was wrong here -
+   nothing about placing a stroke is an error. */
+.bar-preview-added {
+  position: absolute;
+  z-index: 4;
+  background: var(--db-brand-origin-default);
+  pointer-events: none;
+}
+
+/* The stroke a click would place: fainter than a placed one, so it reads as a
+   proposal rather than as something already there. */
+.bar-preview-added-guide {
+  opacity: 0.3;
+  z-index: 5;
+}
+
+/* A copy being placed with Alt: not committed yet, so it reads as provisional
+   while the original stays fully visible underneath. Matches the seam copy. */
+.bar-preview-added-copy {
+  opacity: var(--db-opacity-lg);
+  z-index: 5;
+}
+
 /* Marker for a hand placed seam: a red line at that dp row, above every other
    layer so it stays findable while the tool is open. Start and width are set
    inline, because a seam can be limited to a range of strokes. */
 .bar-preview-seam {
   position: absolute;
   z-index: 4;
-  background: var(--db-critical-origin-default);
+  background: var(--db-brand-origin-default);
   pointer-events: none;
 }
 
@@ -476,7 +527,7 @@ body {
   position: absolute;
   inset-inline: 0;
   z-index: 5;
-  background: var(--db-critical-origin-default);
+  background: var(--db-brand-origin-default);
   opacity: 0.45;
   pointer-events: none;
 }
@@ -680,6 +731,21 @@ input[type="range"]:focus-visible {
 
 .overlay-control input[type="range"] {
   margin: 0;
+}
+
+/* Zoom out, the level, zoom in - one control, so they read as belonging together
+   rather than as three separate toolbar buttons. The level is given a floor width
+   so the row does not shift as the number grows from two digits to three. */
+.zoom-control {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--db-spacing-fixed-3xs);
+  flex: 0 0 auto;
+}
+
+.zoom-control > .db-button:not([data-no-text="true"]) {
+  min-inline-size: 5rem;
 }
 
 /* Disabled: the fill and the thumb drop to the same dim tone as the track, so the

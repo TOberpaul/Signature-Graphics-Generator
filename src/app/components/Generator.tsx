@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DBButton,
   DBCard,
@@ -24,10 +24,11 @@ import { BarPreview } from "./BarPreview";
 import { ImageTemplate } from "./ImageTemplate";
 import { RangeInput } from "./Setting";
 import { useImageFile } from "./useImageFile";
-import { renderIllustration } from "@/lib/illustration/renderer";
+import { canvasSizeUnits, renderIllustration } from "@/lib/illustration/renderer";
 import { DP } from "@/lib/illustration/geometry";
 import type { ConversionResult } from "@/lib/illustration/result";
 import type { SegmentAnchor } from "@/lib/illustration/segments";
+import type { AddedStroke } from "@/lib/illustration/strokes";
 import type { Seam } from "@/lib/illustration/signature";
 import { DEMO_TEMPLATE_PRESET } from "./demoTemplate";
 import type { TemplateSettings } from "./ImageTemplate";
@@ -41,6 +42,26 @@ const PREVIEW_UNIT_SIZE = 3;
 
 /** Target widths in pixels for the raster export. */
 const EXPORT_WIDTHS = [512, 1024, 2048, 4096];
+
+/** How far one press of the zoom buttons takes it. */
+const ZOOM_STEP = 1.25;
+
+/** Zoom range, as a multiple of the canvas's natural size at PREVIEW_UNIT_SIZE. */
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 8;
+
+/**
+ * The gap between the two canvases in compare view, in pixels.
+ *
+ * Mirrors `--db-spacing-fixed-md` from the stylesheet. Only used to work out how
+ * much room each canvas has when fitting, so being a pixel out is harmless - it
+ * cannot move anything, only change the fitted zoom by a fraction of a percent.
+ */
+const COMPARE_GAP_PX = 16;
+
+function clampZoom(value: number): number {
+  return Math.min(Math.max(value, MIN_ZOOM), MAX_ZOOM);
+}
 
 /** The three permitted graphic colours. */
 const COLOURS = [
@@ -71,6 +92,14 @@ export function Generator() {
   // Side-by-side view: the strokes in one canvas, the untouched template photo
   // in a second next to it, so both can be judged against each other directly.
   const [compare, setCompare] = useState(false);
+
+  // Canvas zoom. `null` means "as large as the window allows", which is what it
+  // starts at and what the percentage button returns to; a number is a zoom the
+  // user dialled in. Keeping the two apart is what lets the graphic re-fit itself
+  // when the window changes size, right up until the zoom is touched by hand.
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [zoom, setZoom] = useState<number | null>(null);
+  const [fitZoom, setFitZoom] = useState(1);
 
   // Hand placed seams: rows of the drawable grid that are cut across every
   // stroke. Automatic detection cannot find a level on a soft shape like a dome,
@@ -114,8 +143,103 @@ export function Generator() {
     setRemovedParts((current) => current.filter((_, index) => index !== anchorIndex));
   }, []);
 
+  // Strokes drawn by hand: a mast, an aerial, a flagpole - things too thin to
+  // survive thresholding, or simply not in the template. Stored as slots and rows
+  // on the drawable grid, so like the seams they keep their meaning when a setting
+  // moves and the geometry is rebuilt.
+  const [addedStrokes, setAddedStrokes] = useState<AddedStroke[]>([]);
+  const [drawTool, setDrawTool] = useState(false);
+
+  // Deleting an added stroke takes the addition back rather than recording a
+  // removal. Additions are applied after the removals, so an anchor pointing at one
+  // would never catch it - and a stroke that visibly ignores the delete tool reads
+  // as a bug. Gone means gone here; the draw tool's undo is what brings it back.
+  const deleteAddedStroke = useCallback((index: number) => {
+    setAddedStrokes((current) => current.filter((_, at) => at !== index));
+  }, []);
+
+  // The preview owns the whole gesture and reports the resulting list. Strokes
+  // sharing a slot and row are folded together, so drawing twice over the same
+  // place does not stack duplicates that behave as one.
+  const changeAddedStrokes = useCallback((next: AddedStroke[]) => {
+    const seen = new Set<string>();
+    setAddedStrokes(
+      next.filter((stroke) => {
+        const key = `${stroke.slot}:${stroke.row}:${stroke.height}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    );
+  }, []);
+
   const [result, setResult] = useState<ConversionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // The canvas at its natural size, which is what the zoom is a multiple of. Taken
+  // from the canvas dimensions rather than by rendering, so it costs nothing.
+  const canvasPx = useMemo(() => {
+    if (!result) return null;
+    const { widthUnits, heightUnits } = canvasSizeUnits(result.illustration);
+    return {
+      width: widthUnits * PREVIEW_UNIT_SIZE,
+      height: heightUnits * PREVIEW_UNIT_SIZE,
+    };
+  }, [result]);
+
+  /** How many canvases share the window. Compare view puts two side by side. */
+  const canvasCount = compare && result?.overlay?.src ? 2 : 1;
+
+  // The zoom at which the graphic just fits the window. Recomputed whenever the
+  // window changes size, so collapsing the settings panel or resizing the browser
+  // keeps a fitted graphic fitted.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !canvasPx) return;
+
+    const measure = () => {
+      const { clientWidth, clientHeight } = viewport;
+      if (clientWidth === 0 || clientHeight === 0) return;
+      const room = clientWidth - COMPARE_GAP_PX * (canvasCount - 1);
+      setFitZoom(
+        clampZoom(
+          Math.min(room / canvasCount / canvasPx.width, clientHeight / canvasPx.height),
+        ),
+      );
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [canvasPx, canvasCount]);
+
+  const effectiveZoom = zoom ?? fitZoom;
+
+  const zoomBy = useCallback(
+    (factor: number) => setZoom(clampZoom(effectiveZoom * factor)),
+    [effectiveZoom],
+  );
+
+  // Ctrl/Cmd plus the wheel zooms the canvas instead of the page, which is also
+  // how a trackpad pinch arrives. Registered by hand because React attaches wheel
+  // listeners passively, and `preventDefault` does nothing on a passive listener -
+  // the browser would zoom the whole page alongside.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      // Exponential, so the same wheel movement changes the zoom by the same ratio
+      // at every level - a linear step crawls when zoomed in and jumps when out.
+      setZoom((current) => clampZoom((current ?? fitZoom) * Math.exp(-event.deltaY / 200)));
+    };
+
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, [fitZoom]);
 
   // A name the user has set by hand, overriding the one derived from the file.
   // Drives both the title and the export file name. Reset when the template goes.
@@ -165,8 +289,13 @@ export function Generator() {
     setSeamTool(false);
     setRemovedParts([]);
     setDeleteTool(false);
+    setAddedStrokes([]);
+    setDrawTool(false);
     setCustomName(null);
     setError(null);
+    // Back to fitted: a zoom dialled in for one motif says nothing about the next,
+    // and a new template can have a different format entirely.
+    setZoom(null);
     setTemplateGeneration((generation) => generation + 1);
   }, []);
 
@@ -227,6 +356,7 @@ export function Generator() {
       colour,
       seams,
       removedParts,
+      addedStrokes,
     };
 
     const json = JSON.stringify(preset, null, 2);
@@ -238,7 +368,7 @@ export function Generator() {
       },
       () => setPresetCopied(false),
     );
-  }, [result, colour, seams, removedParts, displayName]);
+  }, [result, colour, seams, removedParts, addedStrokes, displayName]);
 
   const runExport = useCallback(async () => {
     if (!result) return;
@@ -370,6 +500,7 @@ export function Generator() {
               allowExtendedFormat={allowExtendedFormat}
               manualSeams={seams}
               removedParts={removedParts}
+              addedStrokes={addedStrokes}
               initial={initialSettings}
               onResult={handleResult}
               onError={setError}
@@ -403,6 +534,7 @@ export function Generator() {
                   onClick={() => {
                     setSeamTool((open) => !open);
                     setDeleteTool(false);
+                    setDrawTool(false);
                   }}
                 >
                   {seamTool ? "Trennlinien setzen beenden" : "Trennlinien setzen"}
@@ -437,6 +569,7 @@ export function Generator() {
                   onClick={() => {
                     setDeleteTool((open) => !open);
                     setSeamTool(false);
+                    setDrawTool(false);
                   }}
                 >
                   {deleteTool ? "Striche löschen beenden" : "Striche löschen"}
@@ -460,7 +593,48 @@ export function Generator() {
                 <DBInfotext semantic="adaptive" size="small" showIcon={false}>
                   Klicken löscht den markierten Strich, Ziehen wischt mehrere weg.
                   Shift nimmt den ganzen zusammenhängenden Bereich. Gelöschtes
-                  bleibt rot sichtbar, ein Klick darauf holt es zurück.
+                  bleibt rot sichtbar, ein Klick darauf holt es zurück. Ergänzte
+                  Striche werden dabei ganz entfernt.
+                </DBInfotext>
+              ) : null}
+
+              <div className="tool-row">
+                <DBButton
+                  type="button"
+                  variant="filled"
+                  size="medium"
+                  width="full"
+                  aria-pressed={drawTool}
+                  disabled={!result}
+                  onClick={() => {
+                    setDrawTool((open) => !open);
+                    setSeamTool(false);
+                    setDeleteTool(false);
+                  }}
+                >
+                  {drawTool ? "Striche ergänzen beenden" : "Striche ergänzen"}
+                </DBButton>
+                {addedStrokes.length > 0 ? (
+                  <>
+                    <IconAction
+                      icon="undo"
+                      label="Letzten Strich zurücknehmen"
+                      onClick={() => setAddedStrokes((current) => current.slice(0, -1))}
+                    />
+                    <IconAction
+                      icon="bin"
+                      label={`Alle ${addedStrokes.length} ergänzten Striche entfernen`}
+                      onClick={() => setAddedStrokes([])}
+                    />
+                  </>
+                ) : null}
+              </div>
+              {drawTool ? (
+                <DBInfotext semantic="adaptive" size="small" showIcon={false}>
+                  Klicken setzt einen Strich von {DP.minStrokeLength} dp. Beim Ziehen
+                  wächst er mit, an den Enden ziehen ändert die Höhe, in der Mitte
+                  ziehen verschiebt ihn. Option an den Enden wächst nach beiden
+                  Seiten, Option in der Mitte kopiert. Doppelklick entfernt.
                 </DBInfotext>
               ) : null}
             </DBStack>
@@ -504,56 +678,66 @@ export function Generator() {
                   Namen bearbeiten
                 </DBTooltip>
               </DBButton>
+
+              {/* Opposite the name, because it belongs to the artefact rather than
+                  to the view of it: this row is what the graphic *is*, the toolbar
+                  below is how it is displayed. It also has to stay out of the
+                  canvas window, which scrolls once the graphic is zoomed in. */}
+              <DBButton
+                className="preview-replace"
+                type="button"
+                variant="filled"
+                size="medium"
+                icon="upload"
+                onClick={file.open}
+              >
+                Ersetzen
+              </DBButton>
             </header>
 
             <div className="preview-stage">
-              <div className={compare ? "preview-compare" : "preview-single"}>
-                <BarPreview
-                  illustration={result.illustration}
-                  unitSize={PREVIEW_UNIT_SIZE}
-                  foreground={colour}
-                  overlay={result.overlay}
-                  overlayOpacity={overlayOpacity}
-                  strokesOpacity={strokesOpacity}
-                  sampledOpacity={sampledOpacity}
-                  seams={seams}
-                  onSeamsChange={seamTool ? changeSeams : undefined}
-                  onDeletePart={deleteTool ? removePart : undefined}
-                  removed={result.removed}
-                  onRestorePart={restorePart}
-                />
-
-                {/* The second canvas: the same preview with the strokes hidden
-                    and the template fully opaque. Reusing BarPreview keeps both
-                    canvases at the identical box - the (invisible) graphic is
-                    what gives the box its size, and the template stays aligned
-                    to the fitted motif. */}
-                {compare && result.overlay?.src ? (
+              {/* The scrolling window onto the canvas. Zooming past its edges
+                  scrolls here, so the actions below stay where they are. */}
+              <div className="preview-viewport" ref={viewportRef}>
+                <div className={compare ? "preview-compare" : "preview-single"}>
                   <BarPreview
                     illustration={result.illustration}
                     unitSize={PREVIEW_UNIT_SIZE}
+                    scale={effectiveZoom}
                     foreground={colour}
                     overlay={result.overlay}
-                    overlayOpacity={1}
-                    strokesOpacity={0}
-                    sampledOpacity={0}
+                    overlayOpacity={overlayOpacity}
+                    strokesOpacity={strokesOpacity}
+                    sampledOpacity={sampledOpacity}
+                    seams={seams}
+                    onSeamsChange={seamTool ? changeSeams : undefined}
+                    onDeletePart={deleteTool ? removePart : undefined}
+                    removed={result.removed}
+                    onRestorePart={restorePart}
+                    addedStrokes={addedStrokes}
+                    onAddedStrokesChange={drawTool ? changeAddedStrokes : undefined}
+                    onDeleteAddedStroke={deleteTool ? deleteAddedStroke : undefined}
                   />
-                ) : null}
-              </div>
 
-              {/* Directly under the canvas, centred with it. DBStack owns the
-                  spacing so there is no custom layout css here. */}
-              <DBStack direction="column" alignment="center" gap="small">
-                <DBButton
-                  type="button"
-                  variant="filled"
-                  size="medium"
-                  icon="upload"
-                  onClick={file.open}
-                >
-                  Ersetzen
-                </DBButton>
-              </DBStack>
+                  {/* The second canvas: the same preview with the strokes hidden
+                      and the template fully opaque. Reusing BarPreview keeps both
+                      canvases at the identical box - the (invisible) graphic is
+                      what gives the box its size, and the template stays aligned
+                      to the fitted motif. */}
+                  {compare && result.overlay?.src ? (
+                    <BarPreview
+                      illustration={result.illustration}
+                      unitSize={PREVIEW_UNIT_SIZE}
+                      scale={effectiveZoom}
+                      foreground={colour}
+                      overlay={result.overlay}
+                      overlayOpacity={1}
+                      strokesOpacity={0}
+                      sampledOpacity={0}
+                    />
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             <footer className="preview-foot">
@@ -608,6 +792,34 @@ export function Generator() {
                   />
                 </label>
 
+                {/* Zoom: out, the current level, in. The level doubles as the way
+                    back to 100 %, so the three sit together as one control instead
+                    of needing a fourth. */}
+                <div className="zoom-control">
+                  <IconAction
+                    icon="minus"
+                    label="Verkleinern"
+                    disabled={effectiveZoom <= MIN_ZOOM}
+                    onClick={() => zoomBy(1 / ZOOM_STEP)}
+                  />
+                  <DBButton
+                    type="button"
+                    variant="ghost"
+                    size="medium"
+                    disabled={effectiveZoom === 1}
+                    onClick={() => setZoom(1)}
+                  >
+                    {Math.round(effectiveZoom * 100)} %
+                    <DBTooltip placement="top">Auf 100 % zoomen</DBTooltip>
+                  </DBButton>
+                  <IconAction
+                    icon="plus"
+                    label="Vergrößern"
+                    disabled={effectiveZoom >= MAX_ZOOM}
+                    onClick={() => zoomBy(ZOOM_STEP)}
+                  />
+                </div>
+
                 {/* Sits at the far end of the toolbar, toggling the second
                     canvas with the template beside the strokes. */}
                 <DBButton
@@ -622,6 +834,7 @@ export function Generator() {
                 >
                   Vergleichen
                 </DBButton>
+
               </DBCard>
             </footer>
           </div>
@@ -753,10 +966,12 @@ export function Generator() {
 function IconAction({
   icon,
   label,
+  disabled,
   onClick,
 }: {
   icon: string;
   label: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -766,6 +981,7 @@ function IconAction({
       size="medium"
       icon={icon}
       noText
+      disabled={disabled}
       onClick={onClick}
     >
       {label}

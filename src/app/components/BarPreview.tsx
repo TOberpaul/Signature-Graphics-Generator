@@ -19,11 +19,21 @@ import {
 import type { RemovedSegment, SegmentAnchor } from "@/lib/illustration/segments";
 import type { Seam } from "@/lib/illustration/signature";
 import { snapSeamHeight } from "@/lib/illustration/signature";
+import { MIN_ADDED_HEIGHT } from "@/lib/illustration/strokes";
+import type { AddedStroke } from "@/lib/illustration/strokes";
 import { pitchUnitsOf, slotCount } from "@/lib/illustration/geometry";
 
 type Props = {
   illustration: BarIllustration;
   unitSize: number;
+  /**
+   * Zoom, as a multiple of the canvas's natural size at `unitSize`.
+   *
+   * The graphic is sized from this rather than being clamped to its container, so
+   * zooming in genuinely makes it bigger and the surrounding window scrolls. The
+   * pointer maths is unaffected: it reads the rendered box, whatever its size.
+   */
+  scale?: number;
   /** Overrides the safe area from the illustration. Normally left untouched. */
   paddingUnits?: number;
   /** Stroke colour, so the preview matches the export. */
@@ -56,10 +66,35 @@ type Props = {
   removed?: RemovedSegment[];
   /** Called with the anchor index behind a removal, to take it back. */
   onRestorePart?: (anchorIndex: number) => void;
+  /**
+   * Called while the delete tool is open and the pointer is on a stroke that was
+   * added by hand. Those cannot be removed the usual way - additions are applied
+   * after the removals, so a removal anchor has nothing to catch - and a stroke
+   * that visibly refuses to be deleted reads as broken. Taking the addition itself
+   * back is the honest answer: what is visible can be removed.
+   */
+  onDeleteAddedStroke?: (index: number) => void;
+  /** Strokes drawn by hand, shown as markers while the draw tool is open. */
+  addedStrokes?: AddedStroke[];
+  /**
+   * Set while the draw tool is active. Pressing empty space starts a stroke at
+   * that slot and dragging sets its length; pressing an existing one moves it, and
+   * pressing either end drags that end. Double click removes. Reports the full new
+   * list, like the seam tool. Mutually exclusive with the other two tools.
+   */
+  onAddedStrokesChange?: (strokes: AddedStroke[]) => void;
 };
 
 /** How close, in dp, the pointer has to be to grab an existing seam. */
 const SEAM_GRAB_DP = 2;
+
+/**
+ * How many dp at each end of an added stroke drag that end instead of moving it.
+ *
+ * A stroke is at least 4 dp long, so a single dp at each end always leaves a
+ * middle to grab - the handles can never take over the whole stroke.
+ */
+const STROKE_HANDLE_DP = 1;
 
 /**
  * Renders the illustration with the same deterministic renderer that produces
@@ -73,6 +108,7 @@ const SEAM_GRAB_DP = 2;
 export function BarPreview({
   illustration,
   unitSize,
+  scale = 1,
   paddingUnits,
   foreground,
   overlay,
@@ -84,6 +120,9 @@ export function BarPreview({
   onDeletePart,
   removed = [],
   onRestorePart,
+  addedStrokes = [],
+  onAddedStrokesChange,
+  onDeleteAddedStroke,
 }: Props) {
   const showSource = overlay?.src && overlayOpacity > 0;
   const showSampled = sampledOpacity > 0;
@@ -127,6 +166,32 @@ export function BarPreview({
   };
 
   const [drag, setDrag] = useState<SeamDrag | null>(null);
+
+  /**
+   * The gesture in progress on an added stroke.
+   *
+   * Like {@link SeamDrag}, everything is derived from `origin` plus how far the
+   * pointer has travelled, never from the stroke's current value - so a drag stays
+   * stable no matter how often it recomputes.
+   *
+   * - `draw` while a new stroke is being pulled out of the canvas
+   * - `top` / `bottom` drag one end, which is how the length is changed
+   * - `move` shifts the whole stroke, keeping its length
+   *
+   * Alt is read per movement rather than at the press, so it can be taken up or
+   * dropped mid-drag: on an end it grows the stroke about its centre, on the body
+   * it copies. While it copies, `preview` holds the copy and the stroke itself stays
+   * at `origin` - nothing joins the list until the pointer is released.
+   */
+  type StrokeDrag = {
+    index: number;
+    mode: "draw" | "top" | "bottom" | "move";
+    origin: AddedStroke;
+    grabRow: number;
+    preview?: AddedStroke;
+  };
+
+  const [strokeDrag, setStrokeDrag] = useState<StrokeDrag | null>(null);
   /** Boxes of what a click would remove, while the delete tool is open. */
   const [hoverPart, setHoverPart] = useState<
     { x: number; y: number; width: number; height: number }[] | null
@@ -270,6 +335,22 @@ export function BarPreview({
     const point = pointFromEvent(event);
     if (!point) return;
 
+    // A stroke added by hand is checked first, because it is the one thing here
+    // that is really there: it cannot be removed by an anchor, so it is taken out
+    // of the additions instead. Also runs while wiping, so dragging across a mix of
+    // added and generated strokes clears both.
+    if (onDeleteAddedStroke) {
+      const row = rowFromEvent(event);
+      if (row !== null) {
+        const added = strokeIndexAt(row, slotFromEvent(event));
+        if (added >= 0) {
+          onDeleteAddedStroke(added);
+          setHoverPart(null);
+          return;
+        }
+      }
+    }
+
     // Checked before erasing, because the gap a removal left is empty and the
     // nearest stroke would be taken instead - deleting something else on a click
     // that was meant to bring one back.
@@ -299,6 +380,18 @@ export function BarPreview({
     if (erasing) {
       eraseAt(event, false);
       return;
+    }
+
+    // On an added stroke only that stroke is at stake, so only that box is marked.
+    // Falling through to the generated geometry would highlight the whole merged
+    // segment and promise far more than the click removes.
+    if (onDeleteAddedStroke) {
+      const row = rowFromEvent(event);
+      const added = row === null ? -1 : strokeIndexAt(row, slotFromEvent(event));
+      if (added >= 0) {
+        setHoverPart([addedStrokeBox(addedStrokes[added])]);
+        return;
+      }
     }
 
     const point = pointFromEvent(event);
@@ -549,6 +642,201 @@ export function BarPreview({
     endDrag();
   };
 
+  /* ---------------------------------------------------------------------- */
+  /* Draw tool: strokes added by hand                                        */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Which part of an added stroke the pointer is on.
+   *
+   * `top` and `bottom` are the ends that change the length, the rest moves the
+   * whole stroke. A stroke is never shorter than 4 dp, so there is always a middle
+   * left between the two handles.
+   */
+  const strokeGrip = (stroke: AddedStroke, row: number): "top" | "bottom" | "move" => {
+    const last = stroke.row + stroke.height - 1;
+    if (row <= stroke.row + STROKE_HANDLE_DP - 1) return "top";
+    if (row >= last - (STROKE_HANDLE_DP - 1)) return "bottom";
+    return "move";
+  };
+
+  /** Index of the added stroke under the pointer, or -1. */
+  const strokeIndexAt = (row: number, slot: number): number =>
+    addedStrokes.findIndex(
+      (stroke) =>
+        stroke.slot === slot &&
+        row >= stroke.row &&
+        row <= stroke.row + stroke.height - 1,
+    );
+
+  /**
+   * A stroke from two rows, whichever way round they were dragged.
+   *
+   * Kept at the minimum length rather than refusing to go below it, so dragging
+   * back past the start shortens the stroke to 4 dp instead of aborting.
+   */
+  const strokeBetween = (slot: number, a: number, b: number): AddedStroke => {
+    const top = Math.min(a, b);
+    const height = Math.max(Math.abs(b - a) + 1, MIN_ADDED_HEIGHT);
+    const row = Math.min(Math.max(top, 0), Math.max(geometry.rows - height, 0));
+    return { slot, row, height: Math.min(height, geometry.rows) };
+  };
+
+  const handleDrawDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onAddedStrokesChange) return;
+    const row = rowFromEvent(event);
+    if (row === null) return;
+    const slot = slotFromEvent(event);
+
+    const existing = strokeIndexAt(row, slot);
+    if (existing >= 0) {
+      setStrokeDrag({
+        index: existing,
+        mode: strokeGrip(addedStrokes[existing], row),
+        origin: { ...addedStrokes[existing] },
+        grabRow: row,
+      });
+      return;
+    }
+
+    // A fresh stroke starts at the minimum length, so a plain click already places
+    // something legal. Dragging from there sets the real length.
+    const fresh = strokeBetween(slot, row, row);
+    onAddedStrokesChange([...addedStrokes, fresh]);
+    setStrokeDrag({
+      index: addedStrokes.length,
+      mode: "draw",
+      origin: fresh,
+      grabRow: row,
+    });
+  };
+
+  const handleDrawMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onAddedStrokesChange) return;
+    const row = rowFromEvent(event);
+    const slot = slotFromEvent(event);
+    setHoverRow(row);
+    setHoverSlot(slot);
+
+    if (!strokeDrag || row === null) return;
+    const current = addedStrokes[strokeDrag.index];
+    if (!current) return;
+
+    const replace = (stroke: AddedStroke) =>
+      onAddedStrokesChange(
+        addedStrokes.map((item, index) =>
+          index === strokeDrag.index ? stroke : item,
+        ),
+      );
+
+    const { origin } = strokeDrag;
+
+    if (strokeDrag.mode === "draw") {
+      // The slot follows the pointer too, so a stroke started in the wrong column
+      // can be corrected without letting go.
+      replace(strokeBetween(slot, strokeDrag.grabRow, row));
+      return;
+    }
+
+    if (strokeDrag.mode === "top" || strokeDrag.mode === "bottom") {
+      const top = origin.row;
+      const bottom = origin.row + origin.height - 1;
+
+      // Alt grows the stroke about its centre, mirroring the movement onto the
+      // other end. The centre comes from the original, so it does not drift as the
+      // length changes.
+      if (event.altKey) {
+        const centre = (top + bottom) / 2;
+        const reach = Math.abs(row - centre);
+        replace(
+          strokeBetween(
+            origin.slot,
+            Math.round(centre - reach),
+            Math.round(centre + reach),
+          ),
+        );
+        return;
+      }
+
+      // Otherwise the opposite end stays put and the grabbed one follows the
+      // pointer. Dragging past the other end shortens to the minimum instead of
+      // flipping, which `strokeBetween` takes care of.
+      replace(
+        strokeBetween(origin.slot, strokeDrag.mode === "top" ? bottom : top, row),
+      );
+      return;
+    }
+
+    // Move: the stroke keeps its length and travels with the pointer, in both
+    // directions. Computed from the start of the gesture so it cannot drift.
+    const targetRow = Math.min(
+      Math.max(origin.row + (row - strokeDrag.grabRow), 0),
+      Math.max(geometry.rows - origin.height, 0),
+    );
+    const target: AddedStroke = { ...origin, slot, row: targetRow };
+
+    // Alt copies: the stroke stays where it started and the copy follows the
+    // pointer. Nothing is committed until the button is released.
+    if (event.altKey) {
+      replace(origin);
+      setStrokeDrag({ ...strokeDrag, preview: target });
+      return;
+    }
+
+    replace(target);
+    if (strokeDrag.preview) setStrokeDrag({ ...strokeDrag, preview: undefined });
+  };
+
+  /**
+   * Releasing commits the copy.
+   *
+   * A copy dropped where it started is an exact duplicate, and those are folded
+   * together upstream - so an Alt-click without dragging needs no special case and
+   * simply changes nothing.
+   */
+  const handleDrawUp = () => {
+    if (strokeDrag?.preview && onAddedStrokesChange) {
+      onAddedStrokesChange([...addedStrokes, strokeDrag.preview]);
+    }
+    setStrokeDrag(null);
+  };
+
+  // Double click removes, the same deliberate gesture the seam tool uses.
+  const handleDrawDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onAddedStrokesChange) return;
+    const row = rowFromEvent(event);
+    if (row === null) return;
+    const existing = strokeIndexAt(row, slotFromEvent(event));
+    if (existing < 0) return;
+    onAddedStrokesChange(addedStrokes.filter((_, index) => index !== existing));
+    setStrokeDrag(null);
+  };
+
+  /** An added stroke's box in grid units, safe area included - like a segment box. */
+  const addedStrokeBox = (stroke: AddedStroke) => ({
+    x: geometry.padding + stroke.slot * geometry.pitch,
+    y: geometry.padding + stroke.row,
+    width: illustration.system.barWidthUnits,
+    height: stroke.height,
+  });
+
+  /** Where an added stroke sits on the canvas, as fractions of it. */
+  const addedStrokeStyle = (stroke: AddedStroke): React.CSSProperties => {
+    const box = addedStrokeBox(stroke);
+    return {
+      insetInlineStart: `${(box.x / geometry.totalWidth) * 100}%`,
+      inlineSize: `${(box.width / geometry.totalWidth) * 100}%`,
+      insetBlockStart: `${(box.y / geometry.totalHeight) * 100}%`,
+      blockSize: `${(box.height / geometry.totalHeight) * 100}%`,
+    };
+  };
+
+  /** The added stroke under the cursor, for the cursor shape and the guide. */
+  const hoverStroke =
+    onAddedStrokesChange && hoverRow !== null
+      ? addedStrokes[strokeIndexAt(hoverRow, hoverSlot)]
+      : undefined;
+
   /**
    * Where a seam sits on the canvas, as fractions of it.
    *
@@ -629,17 +917,57 @@ export function BarPreview({
       data-delete-tool={
         onDeletePart ? (hoverPart ? "target" : "true") : undefined
       }
-      style={{ aspectRatio: `${result.width} / ${result.height}` }}
+      data-draw-tool={
+        onAddedStrokesChange
+          ? strokeDrag
+            ? strokeDrag.mode === "move"
+              ? "dragging"
+              : "resize-height"
+            : hoverStroke && hoverRow !== null
+              ? strokeGrip(hoverStroke, hoverRow) === "move"
+                ? "grab"
+                : "resize-height"
+              : "true"
+          : undefined
+      }
+      style={{
+        aspectRatio: `${result.width} / ${result.height}`,
+        inlineSize: `${result.width * scale}px`,
+      }}
       onMouseDown={
-        onSeamsChange ? handleDown : onDeletePart ? handleEraseDown : undefined
+        onSeamsChange
+          ? handleDown
+          : onDeletePart
+            ? handleEraseDown
+            : onAddedStrokesChange
+              ? handleDrawDown
+              : undefined
       }
       onMouseMove={
-        onSeamsChange ? handleMove : onDeletePart ? handleEraseMove : undefined
+        onSeamsChange
+          ? handleMove
+          : onDeletePart
+            ? handleEraseMove
+            : onAddedStrokesChange
+              ? handleDrawMove
+              : undefined
       }
       onMouseUp={
-        onSeamsChange ? handleUp : onDeletePart ? () => setErasing(false) : undefined
+        onSeamsChange
+          ? handleUp
+          : onDeletePart
+            ? () => setErasing(false)
+            : onAddedStrokesChange
+              ? handleDrawUp
+              : undefined
       }
-      onDoubleClick={onSeamsChange ? handleDoubleClick : undefined}
+      onDoubleClick={
+        onSeamsChange
+          ? handleDoubleClick
+          : onAddedStrokesChange
+            ? handleDrawDoubleClick
+            : undefined
+      }
       onMouseLeave={
         onSeamsChange
           ? () => {
@@ -651,7 +979,12 @@ export function BarPreview({
                 setHoverPart(null);
                 setErasing(false);
               }
-            : undefined
+            : onAddedStrokesChange
+              ? () => {
+                  setHoverRow(null);
+                  setStrokeDrag(null);
+                }
+              : undefined
       }
     >
       {/* Layer order bottom to top: source photo, then the strokes over it, then
@@ -739,6 +1072,40 @@ export function BarPreview({
           }}
         />
       ))}
+      {/* The strokes drawn by hand, marked while the draw tool is open so they can
+          be told apart from the ones the template produced. They are already part
+          of the graphic underneath - this only makes them findable. */}
+      {onAddedStrokesChange
+        ? addedStrokes.map((stroke, index) => (
+            <div
+              key={index}
+              className="bar-preview-added"
+              aria-hidden="true"
+              style={addedStrokeStyle(stroke)}
+            />
+          ))
+        : null}
+      {/* The copy while it is being placed: drawn faint so the original underneath
+          stays readable and it is clear this one is not committed yet. */}
+      {strokeDrag?.preview ? (
+        <div
+          className="bar-preview-added bar-preview-added-copy"
+          aria-hidden="true"
+          style={addedStrokeStyle(strokeDrag.preview)}
+        />
+      ) : null}
+      {/* Where a click would put a stroke: the slot and the minimum length, so the
+          size and the column are both clear before committing. Hidden over an
+          existing one, which already shows its own marker. */}
+      {onAddedStrokesChange && !strokeDrag && hoverRow !== null && !hoverStroke ? (
+        <div
+          className="bar-preview-added bar-preview-added-guide"
+          aria-hidden="true"
+          style={addedStrokeStyle(
+            strokeBetween(hoverSlot, hoverRow, hoverRow + MIN_ADDED_HEIGHT - 1),
+          )}
+        />
+      ) : null}
       {/* The guide only shows on empty rows, so it never doubles a placed seam. */}
       {onSeamsChange && !drag && hoverRow !== null && !hoverSeam ? (
         <div
