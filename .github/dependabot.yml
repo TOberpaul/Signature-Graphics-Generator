@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # The workflow pins actions to a commit SHA, which is what makes a pin
+  # trustworthy and also what makes it rot: a SHA never tells you that a newer
+  # release exists. Dependabot rewrites the SHA and the version comment together,
+  # so the pins stay current without anyone having to look them up by hand.
+  #
+  # npm is deliberately absent. Those versions are pinned exactly on purpose and
+  # are updated as a deliberate act, so a weekly pull request per package would
+  # be noise rather than information.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One pull request for all of them. They are released together and are
+      # reviewed the same way, so splitting them up only multiplies the CI runs.
+      actions:
+        patterns:
+          - "*"
