@@ -1,7 +1,7 @@
 "use client";
 
 import { DBInfotext, DBTooltip } from "@db-ux/react-core-components";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 /**
  * One setting in the panel.
@@ -53,11 +53,51 @@ export function Setting({
 }
 
 /**
- * A setting backed by a range input.
+ * The one slider in the app.
  *
- * There is no design system slider, so this is the one place where a native
- * control is styled with design system tokens. Keeping it here means every
- * slider in the app is identical.
+ * There is no design system slider, so a native range input is styled with design
+ * system tokens instead (see `input[type="range"]` in globals.css). Chromium draws
+ * no filled part of the track once the track has its own background, and has no
+ * pseudo element for it either, so the fill is a gradient and the position has to
+ * come from here as `--range-fill`.
+ */
+export function RangeInput({
+  id,
+  value,
+  min,
+  max,
+  step,
+  disabled,
+  onChange,
+}: {
+  id?: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  // Guard against min === max, which would divide by zero on a fixed range.
+  const fill = max > min ? ((value - min) / (max - min)) * 100 : 0;
+
+  return (
+    <input
+      id={id}
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(Number(event.target.value))}
+      style={{ "--range-fill": `${fill}%` } as CSSProperties}
+    />
+  );
+}
+
+/**
+ * A setting backed by a range input.
  */
 export function RangeSetting({
   id,
@@ -89,15 +129,14 @@ export function RangeSetting({
       <label className="field-label" data-font-size="sm" htmlFor={id}>
         {label}
       </label>
-      <input
+      <RangeInput
         id={id}
-        type="range"
         min={min}
         max={max}
         step={step}
         value={value}
         disabled={disabled}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={onChange}
       />
     </Setting>
   );

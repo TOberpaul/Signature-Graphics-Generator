@@ -22,6 +22,7 @@ import {
 } from "@db-ux/react-core-components";
 import { BarPreview } from "./BarPreview";
 import { ImageTemplate } from "./ImageTemplate";
+import { RangeInput } from "./Setting";
 import { useImageFile } from "./useImageFile";
 import { renderIllustration } from "@/lib/illustration/renderer";
 import { DP } from "@/lib/illustration/geometry";
@@ -578,35 +579,32 @@ export function Generator() {
               <DBCard className="preview-toolbar" spacing="small" elevationLevel="1">
                 <label className="overlay-control" data-font-size="xs">
                   Vorlage {Math.round(overlayOpacity * 100)} %
-                  <input
-                    type="range"
+                  <RangeInput
                     min={0}
                     max={1}
                     step={0.05}
                     value={overlayOpacity}
-                    onChange={(event) => setOverlayOpacity(Number(event.target.value))}
+                    onChange={setOverlayOpacity}
                   />
                 </label>
                 <label className="overlay-control" data-font-size="xs">
                   Striche {Math.round(strokesOpacity * 100)} %
-                  <input
-                    type="range"
+                  <RangeInput
                     min={0}
                     max={1}
                     step={0.05}
                     value={strokesOpacity}
-                    onChange={(event) => setStrokesOpacity(Number(event.target.value))}
+                    onChange={setStrokesOpacity}
                   />
                 </label>
                 <label className="overlay-control" data-font-size="xs">
                   Raster {Math.round(sampledOpacity * 100)} %
-                  <input
-                    type="range"
+                  <RangeInput
                     min={0}
                     max={1}
                     step={0.05}
                     value={sampledOpacity}
-                    onChange={(event) => setSampledOpacity(Number(event.target.value))}
+                    onChange={setSampledOpacity}
                   />
                 </label>
 

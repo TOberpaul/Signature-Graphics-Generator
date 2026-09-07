@@ -597,9 +597,75 @@ pre {
   overflow-wrap: anywhere;
 }
 
+/* Square track and thumb, to match the square corners the rest of the interface
+   has. The radius tokens on `:root` cannot reach this: a range input is drawn from
+   browser internals, not from design system CSS, so every part is styled by hand.
+
+   `accent-color` is what filled the track up to the thumb, and it goes away the
+   moment the track carries its own background - Chromium has no pseudo element for
+   the filled part. So the fill is a gradient, and the component passes the current
+   value in as `--range-fill` (see `RangeInput`).
+
+   The unfilled track uses the same semi transparent surface as a filled DBButton
+   (`--db-adaptive-bg-basic-transparent-semi-default`), so a slider reads as the
+   same kind of control as the tool buttons below it. */
 input[type="range"] {
+  appearance: none;
   inline-size: 100%;
-  accent-color: var(--db-adaptive-origin-default);
+  background: none;
+  margin: 0;
+  /* The thumb is taller than the track, so the control needs the thumb's height
+     to keep it from being clipped. */
+  block-size: var(--db-sizing-xs);
+  cursor: pointer;
+}
+
+/* One shared look for both engines. Chromium centres the thumb on the track only
+   if told to (`margin-block`), Firefox does it on its own. */
+input[type="range"]::-webkit-slider-runnable-track {
+  block-size: var(--db-sizing-3xs);
+  background: linear-gradient(
+      to right,
+      var(--db-adaptive-origin-default) var(--range-fill, 0%),
+      transparent var(--range-fill, 0%)
+    )
+    var(--db-adaptive-bg-basic-transparent-semi-default);
+}
+
+input[type="range"]::-moz-range-track {
+  block-size: var(--db-sizing-3xs);
+  background: var(--db-adaptive-bg-basic-transparent-semi-default);
+}
+
+input[type="range"]::-moz-range-progress {
+  block-size: var(--db-sizing-3xs);
+  background: var(--db-adaptive-origin-default);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  inline-size: var(--db-sizing-xs);
+  block-size: var(--db-sizing-xs);
+  border: 0;
+  border-radius: 0;
+  background: var(--db-adaptive-origin-default);
+  /* Half the difference between thumb and track, so the thumb sits centred. */
+  margin-block-start: calc((var(--db-sizing-3xs) - var(--db-sizing-xs)) / 2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  inline-size: var(--db-sizing-xs);
+  block-size: var(--db-sizing-xs);
+  border: 0;
+  border-radius: 0;
+  background: var(--db-adaptive-origin-default);
+}
+
+/* The design system's own focus ring, so a focused slider looks like a focused
+   button or select. */
+input[type="range"]:focus-visible {
+  outline: var(--db-border-width-md) solid var(--db-adaptive-focus-default);
+  outline-offset: var(--db-border-width-2xs);
 }
 
 /* Compact label-over-slider control for the preview toolbar, sized to sit next
@@ -616,9 +682,24 @@ input[type="range"] {
   margin: 0;
 }
 
+/* Disabled: the fill and the thumb drop to the same dim tone as the track, so the
+   control reads as inactive rather than just unclickable. */
 input[type="range"]:disabled {
   cursor: not-allowed;
-  accent-color: var(--db-adaptive-on-bg-basic-emphasis-60-default);
+  opacity: var(--db-opacity-lg);
+}
+
+input[type="range"]:disabled::-webkit-slider-runnable-track {
+  background: var(--db-adaptive-on-bg-basic-emphasis-60-default);
+}
+
+input[type="range"]:disabled::-moz-range-progress {
+  background: var(--db-adaptive-on-bg-basic-emphasis-60-default);
+}
+
+input[type="range"]:disabled::-webkit-slider-thumb,
+input[type="range"]:disabled::-moz-range-thumb {
+  background: var(--db-adaptive-on-bg-basic-emphasis-60-default);
 }
 
 /* Matches how the design system dims its own disabled controls, so a disabled
