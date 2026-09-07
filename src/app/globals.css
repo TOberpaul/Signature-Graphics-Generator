@@ -10,6 +10,26 @@
 @import "@db-ux/db-theme/build/styles/rollup.css" layer(db-theme);
 @import "@db-ux/core-components/build/styles/bundle.css" layer(db-ux);
 
+/* Square corners everywhere.
+   The design system defines its radii as tokens on `:root`, so setting them here
+   reaches every component at once instead of chasing individual selectors. These
+   declarations sit outside any layer, and unlayered CSS wins over layered CSS
+   whatever the specificity - so no `!important` is needed.
+   `full` is included deliberately: it is the one that rounds pills and toggles, so
+   leaving it out would keep those round while everything else went square. */
+:root {
+  --db-border-radius-3xs: 0;
+  --db-border-radius-2xs: 0;
+  --db-border-radius-xs: 0;
+  --db-border-radius-sm: 0;
+  --db-border-radius-md: 0;
+  --db-border-radius-lg: 0;
+  --db-border-radius-xl: 0;
+  --db-border-radius-2xl: 0;
+  --db-border-radius-3xl: 0;
+  --db-border-radius-full: 0;
+}
+
 /* Application layout only. Typography, colors and component styling come from
    the design system - never override them here. */
 
