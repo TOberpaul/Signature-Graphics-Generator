@@ -29,9 +29,15 @@ deinen Rechner nicht.
    - **Striche löschen** – Klick entfernt einen Strichabschnitt, Ziehen wischt mehrere weg,
      Shift markiert den ganzen zusammenhängenden Bereich. Gelöschtes bleibt rot sichtbar,
      ein Klick darauf holt es zurück. Praktisch gegen Bildunterschriften oder Reste in
-     der Vorlage.
+     der Vorlage. Ergänzte Striche werden dabei ganz entfernt.
+   - **Striche ergänzen** – Klick setzt einen Strich von 4 dp, beim Ziehen wächst er mit.
+     An den Enden ziehen ändert die Höhe, in der Mitte ziehen verschiebt ihn, Doppelklick
+     entfernt ihn. Option an den Enden lässt ihn nach beiden Seiten wachsen, Option in der
+     Mitte kopiert ihn. Für Masten, Antennen oder Fahnenstangen, die zu dünn sind, um die
+     Umwandlung zu überleben.
 4. **Prüfen.** Die Regler unten rechts blenden Vorlage, Striche und dp-Raster ein und aus.
-   **Vergleichen** stellt Strichgrafik und Vorlage nebeneinander.
+   **Vergleichen** stellt Strichgrafik und Vorlage nebeneinander. Zoomen über die Knöpfe
+   **−** und **+** oder mit Cmd und Mausrad; die Prozentzahl setzt zurück auf 100 %.
 5. **Exportieren** oben rechts, als SVG oder als PNG in 512 bis 4096 px Breite.
    Farbe wählbar: Schwarz, Rot oder Lilac.
 
